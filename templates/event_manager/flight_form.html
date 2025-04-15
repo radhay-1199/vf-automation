@@ -1,0 +1,57 @@
+{% extends 'event_manager/base.html' %}
+{% load crispy_forms_tags %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="mb-0">Create New Flight</h4>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        
+                        <div class="mb-4">
+                            <h5>Flight Details</h5>
+                            {{ form|crispy }}
+                        </div>
+                        
+                        <div class="mb-4">
+                            <h5>Mock Configuration</h5>
+                            <p class="text-muted small">These settings are required before you can start mocking events.</p>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Callback URL</label>
+                                {{ config_form.callback_url|as_crispy_field }}
+                                <div class="form-text">The URL where events will be sent during mock session.</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Event Delay (seconds)</label>
+                                {{ config_form.delay_between_events|as_crispy_field }}
+                                <div class="form-text">Time to wait between sending events in non-fast-forward mode.</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                {{ config_form.fast_forward|as_crispy_field }}
+                                {{ config_form.manual_mode|as_crispy_field }}
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex justify-content-between">
+                            <a href="{% url 'flight-list' %}" class="btn btn-secondary">
+                                <i class="bi bi-arrow-left"></i> Back
+                            </a>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-save"></i> Create Flight
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

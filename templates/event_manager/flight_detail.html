@@ -1,0 +1,4168 @@
+{% extends 'event_manager/base.html' %}{% load crispy_forms_tags %}
+
+{% block content %}
+<!-- Add toast container at the root level -->
+<div id="toast-container" class="toast-container"></div>
+
+<!-- Add timeout value from Django settings -->
+<script type="text/javascript">
+    window.API_TIMEOUT = {{ api_timeout_ms|default:5000 }};
+</script>
+
+<div class="row mb-4">
+    <div class="col">
+        <h2>Flight: {{ flight.flight_unique_id }}</h2>
+    </div>
+    <div class="col text-end">
+        <a href="{% url 'flight-list' %}" class="btn btn-secondary me-2">
+            <i class="bi bi-arrow-left"></i> Back
+        </a>
+        <button type="button" class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#importCSVModal">
+            <i class="bi bi-file-earmark-spreadsheet"></i> Import CSV
+        </button>
+        <button type="button" class="btn btn-primary me-2" data-bs-toggle="modal" data-bs-target="#addEventModal">
+            <i class="bi bi-plus-circle"></i> Add Event
+        </button>
+        <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteFlightModal">
+            <i class="bi bi-trash"></i> Delete Flight
+        </button>
+    </div>
+</div>
+
+<div class="content-wrapper">
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Mock Configuration</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post" id="configForm">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label class="form-label d-flex align-items-center gap-2">
+                                Callback URL
+                                <i class="bi bi-question-circle text-muted" 
+                                   data-bs-toggle="popover" 
+                                   data-bs-trigger="manual"
+                                   data-bs-html="true"
+                                   title="Callback URL Help"
+                                   data-bs-content="
+                                   <ul class='list-unstyled mb-0'>
+                                       <li class='mb-2'><strong>Purpose:</strong><br>The URL where mock events will be sent</li>
+                                       <li class='mb-2'><strong>Format:</strong><br>Must be a valid HTTP/HTTPS URL</li>
+                                       <li><strong>Example:</strong><br><code>http://localhost:8000/api/callback</code></li>
+                                   </ul>
+                                   "></i>
+                            </label>
+                            {{ config_form.callback_url|as_crispy_field }}
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label d-flex align-items-center gap-2">
+                                Event Delay (seconds)
+                                <i class="bi bi-question-circle text-muted" 
+                                   data-bs-toggle="popover" 
+                                   data-bs-trigger="manual"
+                                   data-bs-html="true"
+                                   title="Event Delay Help"
+                                   data-bs-content="
+                                   <ul class='list-unstyled mb-0'>
+                                       <li class='mb-2'><strong>Purpose:</strong><br>Time to wait between sending consecutive events</li>
+                                       <li class='mb-2'><strong>Format:</strong><br>Number of seconds (can be decimal)</li>
+                                       <li><strong>Note:</strong><br>Set to 0 for immediate execution</li>
+                                   </ul>
+                                   "></i>
+                            </label>
+                            {{ config_form.delay_between_events|as_crispy_field }}
+                        </div>
+                        <div class="mb-3">
+                            {{ config_form.fast_forward|as_crispy_field }}
+                            {{ config_form.manual_mode|as_crispy_field }}
+                        </div>
+                        
+                        <button class="btn btn-link text-decoration-none mb-3" type="button" data-bs-toggle="collapse" data-bs-target="#advancedConfig">
+                            <i class="bi bi-gear"></i> Advanced Configuration 
+                            <i class="bi bi-chevron-down transition-transform"></i>
+                        </button>
+                        
+                        <div class="collapse" id="advancedConfig">
+                            <div class="card card-body bg-light mb-3">
+                                <h6>Cleanup Configuration</h6>
+                                <div class="mb-3">
+                                    <label class="form-label d-flex align-items-center gap-2">
+                                        Query/Placeholder
+                                        <i class="bi bi-question-circle text-muted" 
+                                           data-bs-toggle="popover" 
+                                           data-bs-trigger="manual"
+                                           data-bs-html="true"
+                                           title="Query Help"
+                                           data-bs-content="
+                                           <ul class='list-unstyled mb-0'>
+                                               <li class='mb-2'><strong>Default Query:</strong><br>If no query is provided, the following will be executed:<br><code>DELETE FROM flight_status WHERE flight_unique_id = '{flight_unique_id}';</code></li>
+                                               <li class='mb-2'><strong>Placeholder Usage:</strong><br>Use <code>{flight_unique_id}</code> in your query to be replaced with the actual flight ID</li>
+                                               <li><strong>Multiple Queries:</strong><br>You can run multiple queries by separating them with semicolons (;)<br>Each query will be executed in sequence</li>
+                                           </ul>
+                                           "></i>
+                                    </label>
+                                    <textarea name="cleanup_query" class="form-control" id="id_cleanup_query" rows="3" placeholder="DELETE FROM flight_status WHERE flight_unique_id = '{flight_unique_id}';"></textarea>
+                                    <div class="mt-2">
+                                        <button type="button" class="btn btn-outline-secondary" id="defaultQueryBtn" 
+                                                data-bs-toggle="tooltip" title="Reset to default cleanup query">
+                                            <i class="bi bi-arrow-clockwise"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-outline-primary" id="runCleanupBtn"
+                                                data-bs-toggle="tooltip" title="Run cleanup query">
+                                            <i class="bi bi-play-fill"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <div class="db-config-header">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div class="form-check d-flex align-items-center gap-2">
+                                                <input class="form-check-input" type="checkbox" id="id_use_custom_db" name="use_custom_db">
+                                                <label class="form-check-label d-flex align-items-center gap-2" for="id_use_custom_db">
+                                                    Use Custom Database Connection
+                                                    <i class="bi bi-question-circle text-muted" 
+                                                       data-bs-toggle="popover" 
+                                                       data-bs-trigger="manual"
+                                                       data-bs-html="true"
+                                                       title="Custom Database Help"
+                                                       data-bs-content="
+                                                       <ul class='list-unstyled mb-0'>
+                                                           <li class='mb-2'><strong>Purpose:</strong><br>Connect to a different database for cleanup queries</li>
+                                                           <li class='mb-2'><strong>When to use:</strong><br>If your flight status data is in a different database than the default</li>
+                                                           <li><strong>Note:</strong><br>All fields are required when enabled</li>
+                                                       </ul>
+                                                       "></i>
+                                                </label>
+                                            </div>
+                                            <button class="btn btn-configure" type="button" data-bs-toggle="collapse" data-bs-target="#dbConfigSection">
+                                                <i class="bi bi-chevron-down transition-transform"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="dbConfigSection" class="collapse">
+                                    <div class="card border-light mb-3">
+                                        <div class="card-body bg-light rounded p-4">
+                                            <div class="row g-3">
+                                                <div class="col-md-8">
+                                                    <div class="form-group">
+                                                        <label class="form-label fw-semibold">Host</label>
+                                                        <input type="text" name="db_host" class="form-control" id="id_db_host" placeholder="localhost">
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <div class="form-group">
+                                                        <label class="form-label fw-semibold">Port</label>
+                                                        <input type="text" name="db_port" class="form-control" id="id_db_port" placeholder="5432">
+                                                    </div>
+                                                </div>
+                                                <div class="col-12">
+                                                    <div class="form-group">
+                                                        <label class="form-label fw-semibold">Database Name</label>
+                                                        <input type="text" name="db_name" class="form-control" id="id_db_name" placeholder="database_name">
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <div class="form-group">
+                                                        <label class="form-label fw-semibold">Username</label>
+                                                        <input type="text" name="db_user" class="form-control" id="id_db_user" placeholder="username">
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <div class="form-group">
+                                                        <label class="form-label fw-semibold">Password</label>
+                                                        <input type="password" name="db_password" class="form-control" id="id_db_password" placeholder="••••••••">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button type="submit" name="save_config" class="btn btn-primary">
+                            <i class="bi bi-save"></i> Save Configuration
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Additional Tasks</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <div class="d-flex align-items-center gap-2">
+                            <button type="button" class="btn btn-outline-primary flex-grow-1" data-bs-toggle="modal" data-bs-target="#kafkaTaskModal">
+                                <i class="bi bi-lightning"></i> Configure Kafka Event
+                            </button>
+                            <button type="button" class="btn btn-outline-primary" id="runKafkaTaskBtn" disabled
+                                    data-bs-toggle="tooltip" title="Run Kafka task">
+                                <i class="bi bi-play-fill"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex align-items-center gap-2">
+                            <button type="button" class="btn btn-outline-primary flex-grow-1" data-bs-toggle="modal" data-bs-target="#apiTaskModal">
+                                <i class="bi bi-cloud"></i> Configure API Call
+                            </button>
+                            <button type="button" class="btn btn-outline-primary" id="runApiTaskBtn" disabled
+                                    data-bs-toggle="tooltip" title="Run API task">
+                                <i class="bi bi-play-fill"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Events</h5>
+                    <div class="sticky-mock-controls">
+                        <div class="card shadow-sm">
+                            <div class="card-body py-2 px-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div class="btn-group me-3">
+                                        <button type="submit" form="mockControlForm" name="start_mock" class="btn btn-success btn-sm" data-bs-toggle="tooltip" title="Start Session">
+                                            <i class="bi bi-play-circle"></i>
+                                        </button>
+                                        <button type="button" id="nextEventBtn" class="btn btn-primary btn-sm" {% if not config %}disabled{% endif %} data-bs-toggle="tooltip" title="Next Event">
+                                            <i class="bi bi-skip-forward"></i>
+                                        </button>
+                                        <button type="button" id="pauseBtn" class="btn btn-warning btn-sm" disabled data-bs-toggle="tooltip" title="Pause Session">
+                                            <i class="bi bi-pause-circle"></i>
+                                        </button>
+                                        <button type="submit" form="mockControlForm" name="reset_mock" class="btn btn-info btn-sm" data-bs-toggle="tooltip" title="Reset Session">
+                                            <i class="bi bi-arrow-clockwise"></i>
+                                        </button>
+                                        <button type="submit" form="mockControlForm" name="abort_mock" class="btn btn-danger btn-sm" data-bs-toggle="tooltip" title="Abort Session">
+                                            <i class="bi bi-stop-circle"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="tooltip" title="Delete All Events" id="deleteAllEventsBtn" {% if not events %}disabled{% endif %}>
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                    <div class="d-flex align-items-center">
+                                        <span class="badge bg-primary me-2" id="eventCounter">
+                                            Played: <span id="playedCount">0</span> / {{ events|length }}
+                                        </span>
+                                        <span class="badge bg-info me-2" id="currentPriority">
+                                            Priority: <span id="priorityValue">0</span>
+                                        </span>
+                                        <span class="badge bg-warning" id="sessionStatus">
+                                            Status: <span id="statusValue">Idle</span>
+                                        </span>
+                                    </div>
+                                </div>
+                                <form id="mockControlForm" method="post" class="d-none">
+                                    {% csrf_token %}
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body" style="max-height: 600px; overflow-y: auto;">
+                    {% for event in events %}
+                        <div class="card mb-3 event-card {% if event.is_played %}played{% endif %}" 
+                             id="event-{{ event.id }}" 
+                             data-priority="{{ event.priority }}">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <h6 class="card-title">State: {{ event.flight_state }}</h6>
+                                        <p class="card-text">
+                                            <small class="text-muted">Priority: {{ event.priority }}</small>
+                                        </p>
+                                    </div>
+                                    <div class="d-flex flex-column align-items-end">
+                                        <span class="badge {% if event.is_played %}bg-success{% else %}bg-secondary{% endif %} mb-2">
+                                            {{ event.is_played|yesno:"Played,Pending" }}
+                                        </span>
+                                        <div class="btn-group">
+                                            <button type="button" 
+                                                    class="btn btn-sm btn-outline-primary play-event-btn"
+                                                    data-event-id="{{ event.id }}"
+                                                    {% if event.priority < current_priority %}disabled{% endif %}>
+                                                <i class="bi bi-play-fill"></i> <span class="button-text">{% if event.is_played %}Play Again{% else %}Play{% endif %}</span>
+                                            </button>
+                                            <button type="button" 
+                                                    class="btn btn-sm btn-outline-secondary edit-event-btn"
+                                                    data-event-id="{{ event.id }}"
+                                                    data-bs-toggle="modal" 
+                                                    data-bs-target="#editEventModal">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button type="button" 
+                                                    class="btn btn-sm btn-outline-danger delete-event-btn"
+                                                    data-event-id="{{ event.id }}"
+                                                    data-bs-toggle="modal" 
+                                                    data-bs-target="#deleteEventModal">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% if event.identified_changes %}
+                                    <div class="mt-2">
+                                        <strong>Changes ({{ event.flight_state }}):</strong>
+                                        <pre class="mb-0"><code>{{ event.identified_changes }}</code></pre>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% empty %}
+                        <div class="alert alert-info">
+                            No events added yet.
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Event Modal -->
+<div class="modal fade" id="addEventModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add New Event</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addEventForm" method="post" action="{% url 'add-event' flight.pk %}">
+                    {% csrf_token %}
+                    {{ event_form|crispy }}
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="submit" form="addEventForm" class="btn btn-primary">Add Event</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Kafka Task Modal -->
+<div class="modal fade" id="kafkaTaskModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Configure Kafka Event</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" id="kafkaModalClose"></button>
+            </div>
+            <div class="modal-body">
+                <form id="kafkaTaskForm" method="post">
+                    {% csrf_token %}
+                    <!-- Message Display Area -->
+                    <div id="kafkaMessageContainer" class="alert d-none mb-3">
+                        <button type="button" class="btn-close float-end" data-bs-dismiss="alert"></button>
+                        <div class="d-flex align-items-center">
+                            <i class="bi me-2"></i>
+                            <span id="kafkaMessageText"></span>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Bootstrap Servers</label>
+                        <input type="text" class="form-control" id="bootstrapServers" name="bootstrapServers" 
+                               value="build-kafka.ixigo.com:9092" required>
+                        <div class="invalid-feedback">Please provide bootstrap servers</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Topic Name</label>
+                        <select class="form-select" id="topicName" name="topicName" required>
+                            <option value="flight_booking_for_flight_status">flight_booking_for_flight_status</option>
+                            <option value="cotainerfactory">cotainerfactory</option>
+                        </select>
+                        <div class="invalid-feedback">Please select a topic name</div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="useSchemaRegistry">
+                                <label class="form-check-label" for="useSchemaRegistry">Use Schema Registry</label>
+                            </div>
+                        </div>
+                        <div id="schemaRegistrySection" class="d-none">
+                            <div class="mb-3">
+                                <label class="form-label">Schema Registry URL</label>
+                                <input type="url" class="form-control" id="schemaRegistryUrl" name="schemaRegistryUrl" 
+                                       placeholder="http://build-kafka.ixigo.com:8081">
+                                <div class="invalid-feedback">Please provide a valid Schema Registry URL</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label class="form-label mb-0">Event Payload (JSON)</label>
+                            <div class="d-flex align-items-center gap-2">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="generateKafkaPayloadBtn">
+                                    <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                                    <i class="bi bi-magic"></i> Generate Payload
+                                </button>
+                                <i class="bi bi-question-circle text-muted" 
+                                   data-bs-toggle="popover" 
+                                   data-bs-trigger="manual"
+                                   data-bs-html="true"
+                                   title="Auto-Generate Kafka Payload"
+                                   data-bs-content="
+                                   <ul class='list-unstyled mb-0'>
+                                       <li class='mb-2'><strong>Source:</strong><br>Uses event with ADDED_TO_TRACKING state change</li>
+                                       <li class='mb-2'><strong>Fallback:</strong><br>If no ADDED_TO_TRACKING event found, shows appropriate error</li>
+                                       <li><strong>Format:</strong><br>Returns stringified raw event JSON from selected event</li>
+                                   </ul>
+                                   "></i>
+                            </div>
+                        </div>
+                        <textarea class="form-control" id="kafkaPayload" name="kafkaPayload" rows="8" required></textarea>
+                        <div class="invalid-feedback">Please provide valid JSON payload</div>
+                    </div>
+                    <div id="kafkaResponse" class="d-none">
+                        <div class="mb-3">
+                            <label class="form-label">Response</label>
+                            <div class="position-relative">
+                                <pre class="bg-light p-3 rounded"><code id="kafkaResponseContent"></code></pre>
+                                <div class="position-absolute top-0 end-0 p-2">
+                                    <i id="kafkaResponseStatus" class="bi bi-check-circle-fill text-success fs-4 d-none"></i>
+                                    <i id="kafkaResponseError" class="bi bi-x-circle-fill text-danger fs-4 d-none"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" id="saveKafkaConfig" class="btn btn-success">
+                    <i class="bi bi-save"></i> Save Configuration
+                </button>
+                <button type="button" id="cancelKafkaRequest" class="btn btn-warning d-none">
+                    <i class="bi bi-x-circle"></i> Cancel Request
+                </button>
+                <button type="button" id="sendKafkaEvent" class="btn btn-primary">
+                    <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                    <i class="bi bi-send"></i> Send Event
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- API Task Modal -->
+<div class="modal fade" id="apiTaskModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create User Tracking</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" id="apiModalClose"></button>
+            </div>
+            <div class="modal-body">
+                <form id="apiTaskForm" method="post">
+                    {% csrf_token %}
+                    <!-- Message Display Area -->
+                    <div id="modalMessageContainer" class="alert d-none mb-3">
+                        <button type="button" class="btn-close float-end" data-bs-dismiss="alert"></button>
+                        <div class="d-flex align-items-center">
+                            <i class="bi me-2"></i>
+                            <span id="modalMessageText"></span>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">User ID</label>
+                        <input type="text" class="form-control" id="userId" name="userId" 
+                               data-validation="user-identifier">
+                        <div class="invalid-feedback">Please provide either User ID or UUID</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">UUID</label>
+                        <input type="text" class="form-control" id="uuid" name="uuid" 
+                               data-validation="user-identifier">
+                        <div class="invalid-feedback">Please provide either User ID or UUID</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Label</label>
+                        <input type="text" class="form-control" id="label" name="label" value="MY_FLIGHT">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Client ID</label>
+                        <input type="text" class="form-control" id="clientId" name="clientId" value="iximaio">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">URL</label>
+                        <input type="url" class="form-control" id="apiUrl" name="apiUrl" 
+                               value="https://flights-build3.ixigo.com/nav/v1/internal/create-tracking" required>
+                        <div class="invalid-feedback">Please provide a valid URL</div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-end align-items-center mb-2">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="includeHeaders">
+                                <label class="form-check-label" for="includeHeaders">Include Custom Headers</label>
+                            </div>
+                        </div>
+                        <div id="headersContainer" class="d-none">
+                            <div class="header-row mb-2">
+                                <div class="row g-2">
+                                    <div class="col">
+                                        <input type="text" class="form-control header-key" placeholder="Header Key">
+                                    </div>
+                                    <div class="col">
+                                        <input type="text" class="form-control header-value" placeholder="Header Value">
+                                    </div>
+                                    <div class="col-auto">
+                                        <button type="button" class="btn btn-outline-danger remove-header">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-outline-primary btn-sm" id="addHeaderBtn">
+                                <i class="bi bi-plus-circle"></i> Add Header
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label class="form-label mb-0">Request Payload (JSON)</label>
+                            <div class="d-flex align-items-center gap-2">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="generatePayloadBtn">
+                                    <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                                    <i class="bi bi-magic"></i> Generate Payload
+                                </button>
+                                <i class="bi bi-question-circle text-muted" 
+                                   data-bs-toggle="popover" 
+                                   data-bs-trigger="manual"
+                                   data-bs-html="true"
+                                   title="Auto-Generate Payload"
+                                   data-bs-content="
+                                   <ul class='list-unstyled mb-0'>
+                                       <li class='mb-2'><strong>Purpose:</strong><br>Automatically generate payload from existing events</li>
+                                       <li class='mb-2'><strong>Primary Source:</strong><br>Uses FIRST_NAV_TRACKING event if available</li>
+                                       <li><strong>Fallback:</strong><br>If FIRST_NAV_TRACKING not found, uses the event with lowest priority</li>
+                                   </ul>
+                                   "></i>
+                            </div>
+                        </div>
+                        <textarea class="form-control" id="requestPayload" name="requestPayload" rows="8" required></textarea>
+                        <div class="invalid-feedback">Please provide valid JSON payload</div>
+                    </div>
+                    <div id="apiResponse" class="d-none">
+                        <div class="mb-3">
+                            <label class="form-label">Response</label>
+                            <div class="position-relative">
+                                <pre class="bg-light p-3 rounded"><code id="responseContent"></code></pre>
+                                <div class="position-absolute top-0 end-0 p-2">
+                                    <i id="responseStatus" class="bi bi-check-circle-fill text-success fs-4 d-none"></i>
+                                    <i id="responseError" class="bi bi-x-circle-fill text-danger fs-4 d-none"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" id="saveApiConfig" class="btn btn-success">
+                    <i class="bi bi-save"></i> Save Configuration
+                </button>
+                <button type="button" id="cancelApiRequest" class="btn btn-warning d-none">
+                    <i class="bi bi-x-circle"></i> Cancel Request
+                </button>
+                <button type="button" id="sendApiRequest" class="btn btn-primary">
+                    <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                    <i class="bi bi-send"></i> Send Request
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Dialog Modal -->
+<div class="modal fade" id="confirmationModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-bottom-0">
+                <h5 class="modal-title">Confirm Action</h5>
+            </div>
+            <div class="modal-body py-4">
+                <div class="text-center mb-4">
+                    <i class="bi bi-exclamation-triangle text-warning display-4"></i>
+                </div>
+                <p class="text-center fs-5">A request is currently running. Do you want to cancel it and close?</p>
+            </div>
+            <div class="modal-footer border-top-0">
+                <button type="button" class="btn btn-secondary" id="confirmationNoBtn">No, Keep Running</button>
+                <button type="button" class="btn btn-danger" id="confirmationYesBtn">Yes, Cancel & Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- CSV Import Modal -->
+<div class="modal fade" id="importCSVModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Import Events from CSV</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="csvImportForm" method="post" action="{% url 'import-events' flight.pk %}" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label class="form-label">Upload CSV File</label>
+                        <input type="file" class="form-control" name="csv_file" accept=".csv">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Or Paste CSV Content</label>
+                        <textarea class="form-control" name="csv_content" rows="10" placeholder="Paste your CSV content here..."></textarea>
+                    </div>
+                    <div class="form-text mb-3">
+                        <strong>Expected CSV Format:</strong><br>
+                        id,added_on,raw_event_json,identified_changes,flight_state,boarding_state,source,priority,flight_status_id,deleted,ingestion_time,offset<br>
+                        <small>Note: Events will be prioritized based on ingestion_time (earlier time = lower priority)</small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="submit" form="csvImportForm" class="btn btn-primary">Import Events</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Flight Modal -->
+<div class="modal fade" id="deleteFlightModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Delete Flight</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete flight <strong>{{ flight.flight_unique_id }}</strong>?</p>
+                <p class="text-danger">This action cannot be undone. All associated events and configurations will be deleted.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form method="post" action="{% url 'delete-flight' flight.pk %}" class="d-inline" id="deleteFlightForm">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">Delete Flight</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Event Modal -->
+<div class="modal fade" id="deleteEventModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Delete Event</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete this event?</p>
+                <p class="text-danger">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form method="post" action="{% url 'delete-event' flight.pk 0 %}" id="deleteEventForm" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">Delete Event</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Event Modal -->
+<div class="modal fade" id="editEventModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Event</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editEventForm" method="post" action="{% url 'edit-event' flight.pk 0 %}">
+                    {% csrf_token %}
+                    <div id="editEventFormContent">
+                        <!-- Form fields will be loaded here dynamically -->
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="submit" form="editEventForm" class="btn btn-primary">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete All Events Modal -->
+<div class="modal fade" id="deleteAllEventsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Delete All Events</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete all events for flight <strong>{{ flight.flight_unique_id }}</strong>?</p>
+                <p class="text-danger">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form method="post" action="{% url 'delete-all-events' flight.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-warning">Delete All Events</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .sticky-mock-controls {
+        position: sticky;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 1030;
+        background-color: #fff;
+        padding: 10px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .content-wrapper {
+        margin-top: 20px;
+    }
+
+    /* Make controls more compact */
+    .sticky-mock-controls .card {
+        margin-bottom: 0;
+    }
+
+    .sticky-mock-controls .card-body {
+        padding: 0.5rem 1rem;
+    }
+
+    .sticky-mock-controls .btn-group .btn {
+        padding: 0.25rem 0.5rem;
+    }
+
+    /* Updated Toast styling */
+    #toast-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1060; /* Higher than modal's 1050 */
+        pointer-events: none;
+        max-width: 400px;
+        width: 100%;
+    }
+
+    .toast {
+        pointer-events: auto;
+        min-width: 300px;
+        background-color: rgba(255, 255, 255, 0.98) !important;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        border-left: 4px solid;
+        margin-bottom: 0.75rem;
+        transition: all 0.3s ease;
+        opacity: 1 !important;
+        z-index: 1060; /* Ensure individual toasts also have high z-index */
+    }
+
+    .toast.bg-success {
+        border-left-color: #198754;
+        color: #fff !important;
+    }
+
+    .toast.bg-danger {
+        border-left-color: #dc3545;
+        color: #fff !important;
+    }
+
+    .toast.bg-warning {
+        border-left-color: #ffc107;
+        color: #fff !important;
+    }
+
+    .toast.bg-info {
+        border-left-color: #0dcaf0;
+        color: #fff !important;
+    }
+
+    .toast .toast-body {
+        padding: 1rem;
+        font-weight: 500;
+    }
+
+    .toast.hide {
+        opacity: 0 !important;
+        transform: translateX(100%);
+    }
+
+    /* Improve advanced configuration collapse animation */
+    #advancedConfig {
+        transition: all 0.3s ease;
+    }
+
+    #advancedConfig.collapsing {
+        opacity: 0;
+    }
+
+    #advancedConfig.show {
+        opacity: 1;
+    }
+
+    .sticky-mock-controls {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 1000;
+        background-color: #fff;
+        padding: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .content-wrapper {
+        margin-top: 70px;  /* Add margin to prevent content from being hidden under sticky controls */
+    }
+
+    .btn-group .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .btn-group .btn i {
+        font-size: 1.1em;
+    }
+
+    /* Make pause button show active state */
+    .btn-warning.active {
+        background-color: #ffc107;
+        border-color: #ffc107;
+        color: #000;
+    }
+
+    .event-card {
+        transition: all 0.3s ease;
+        position: relative;
+    }
+    
+    .event-card.played {
+        opacity: 0.7;
+    }
+    
+    .event-card:not(.played):hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    
+    .event-card.highlight-success {
+        animation: highlightSuccess 1s ease;
+    }
+    
+    @keyframes highlightSuccess {
+        0% { background-color: #d4edda; }
+        100% { background-color: white; }
+    }
+    
+    .current-event::before {
+        content: "▶";
+        position: absolute;
+        left: -20px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #0d6efd;
+        animation: pulse 1s infinite;
+    }
+    
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
+    }
+    
+    .card-body .form-group:last-child {
+        margin-bottom: 0;
+    }
+    
+    #advancedConfig {
+        border-top: 1px solid rgba(0,0,0,.125);
+        margin: 1rem -1rem -1rem;
+        padding: 1rem;
+    }
+    
+    #advancedConfig .card-body {
+        padding: 1rem;
+    }
+
+    .input-group .form-control {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+    }
+
+    .btn-group .play-event-btn {
+        min-width: 80px;  /* Ensure consistent width for Play/Play Again text */
+    }
+
+    /* Add rotation animation for chevron */
+    .transition-transform {
+        transition: transform 0.3s ease;
+    }
+    
+    [data-bs-toggle="collapse"][aria-expanded="true"] .bi-chevron-down {
+        transform: rotate(180deg);
+    }
+
+    /* Style the advanced config button */
+    [data-bs-toggle="collapse"].btn-link {
+        color: #0d6efd;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    [data-bs-toggle="collapse"].btn-link:hover {
+        color: #0a58ca;
+    }
+
+    /* Custom Database Connection Styling */
+    .db-config-header {
+        background-color: #f8f9fa;
+        border-radius: 0.5rem;
+        padding: 0.75rem 1rem;
+        margin-bottom: 1rem;
+        border: 1px solid rgba(0,0,0,0.05);
+        transition: all 0.2s ease;
+    }
+
+    .db-config-header:hover {
+        background-color: #f3f4f6;
+        border-color: rgba(0,0,0,0.08);
+    }
+
+    .db-config-header .form-check {
+        margin: 0;
+    }
+
+    .db-config-header .form-check-label {
+        font-size: 0.9375rem;
+        font-weight: 500;
+        color: #2c3e50;
+        user-select: none;
+    }
+
+    .db-config-header .form-check-input {
+        width: 1.25rem;
+        height: 1.25rem;
+        margin-top: 0;
+        cursor: pointer;
+    }
+
+    .db-config-header .form-check-input:checked {
+        background-color: #0d6efd;
+        border-color: #0d6efd;
+    }
+
+    .btn-configure {
+        padding: 0.25rem;
+        color: #6c757d;
+        border: none;
+        background: none;
+        border-radius: 0.375rem;
+        transition: all 0.2s ease;
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .btn-configure:hover {
+        color: #0d6efd;
+        background-color: rgba(13, 110, 253, 0.1);
+    }
+
+    .btn-configure .bi-chevron-down {
+        font-size: 1rem;
+    }
+
+    #dbConfigSection {
+        margin-top: 0;
+        margin-bottom: 1.5rem;
+    }
+
+    #dbConfigSection .card {
+        border: none;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    #dbConfigSection .card-body {
+        background-color: white;
+        border: 1px solid rgba(0,0,0,0.05);
+    }
+
+    #dbConfigSection .form-label {
+        color: #2c3e50;
+        font-size: 0.875rem;
+        margin-bottom: 0.5rem;
+    }
+
+    #dbConfigSection .form-control {
+        border: 1px solid #dee2e6;
+        transition: all 0.2s ease;
+        font-size: 0.9375rem;
+    }
+
+    #dbConfigSection .form-control:focus {
+        border-color: #86b7fe;
+        box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.15);
+    }
+
+    #dbConfigSection .form-control::placeholder {
+        color: #a0aec0;
+    }
+
+    /* Popover styling */
+    .popover {
+        max-width: 400px;
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        border: 1px solid rgba(0, 0, 0, 0.1);
+        pointer-events: auto !important;  /* Ensure popover is interactive */
+    }
+
+    /* Add a small invisible margin to prevent gaps */
+    .popover::before {
+        content: '';
+        position: absolute;
+        top: -10px;
+        left: 0;
+        right: 0;
+        height: 10px;
+    }
+
+    .popover::after {
+        content: '';
+        position: absolute;
+        bottom: -10px;
+        left: 0;
+        right: 0;
+        height: 10px;
+    }
+
+    /* API Response styling */
+    #apiResponse pre {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    
+    #apiResponse .bi-check-circle-fill,
+    #apiResponse .bi-x-circle-fill {
+        filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.8));
+    }
+    
+    /* Add smooth transitions */
+    .modal.fade .modal-dialog {
+        transition: transform 0.2s ease-out;
+    }
+    
+    .form-control {
+        transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+    }
+    
+    .form-control:focus {
+        border-color: #86b7fe;
+        box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+    }
+    
+    /* Loading spinner */
+    .spinner-border {
+        margin-right: 0.5rem;
+    }
+    
+    /* Response animation */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .animate__fadeIn {
+        animation: fadeIn 0.3s ease-out;
+    }
+
+    /* Confirmation Dialog Modal Styling */
+    #confirmationModal .modal-content {
+        border-radius: 1rem;
+        border: none;
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    }
+    
+    #confirmationModal .modal-header {
+        padding: 1.5rem 1.5rem 0.5rem;
+    }
+    
+    #confirmationModal .modal-body {
+        padding: 1.5rem;
+    }
+    
+    #confirmationModal .modal-footer {
+        padding: 0.5rem 1.5rem 1.5rem;
+        justify-content: center;
+        gap: 1rem;
+    }
+    
+    #confirmationModal .bi-exclamation-triangle {
+        color: #ffc107;
+        filter: drop-shadow(0 0 10px rgba(255, 193, 7, 0.3));
+    }
+    
+    #confirmationModal .btn {
+        padding: 0.5rem 1.5rem;
+        border-radius: 0.5rem;
+        font-weight: 500;
+    }
+    
+    /* Animation for the modal */
+    #confirmationModal.fade .modal-dialog {
+        transform: scale(0.95);
+        transition: transform 0.2s ease-out;
+    }
+    
+    #confirmationModal.show .modal-dialog {
+        transform: scale(1);
+    }
+
+    /* Loading overlay styles */
+    .overlay-container {
+        position: relative;
+    }
+
+    .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.8);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1;
+        backdrop-filter: blur(2px);
+    }
+
+    #generatePayloadBtn:disabled {
+        cursor: not-allowed;
+    }
+
+    #generatePayloadBtn .spinner-border {
+        margin-right: 0.25rem;
+    }
+
+    #modalMessageContainer {
+        position: relative;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        border: none;
+        border-radius: 0.5rem;
+        animation-duration: 0.3s;
+    }
+    
+    #modalMessageContainer .btn-close {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+        padding: 0.5rem;
+    }
+    
+    #modalMessageContainer .bi {
+        font-size: 1.25rem;
+    }
+    
+    .alert-success .bi {
+        color: #198754;
+    }
+    
+    .alert-warning .bi {
+        color: #ffc107;
+    }
+    
+    .alert-danger .bi {
+        color: #dc3545;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .animate__fadeIn {
+        animation: fadeIn 0.3s ease-out;
+    }
+
+    .mb-3 {
+        position: relative;
+    }
+
+    .label-container {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .label-container .form-label {
+        margin-bottom: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .button-container {
+        display: inline-flex;
+        align-items: center;
+        margin-left: auto;
+    }
+
+    #generatePayloadBtn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+        line-height: 1.5;
+        white-space: nowrap;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Set up CSRF token for AJAX requests
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+    
+    const csrftoken = getCookie('csrftoken');
+    
+    function csrfSafeMethod(method) {
+        // these HTTP methods do not require CSRF protection
+        return (/^(GET|HEAD|OPTIONS|TRACE)$/.test(method));
+    }
+    
+    $.ajaxSetup({
+        beforeSend: function(xhr, settings) {
+            if (!csrfSafeMethod(settings.type) && !this.crossDomain) {
+                xhr.setRequestHeader("X-CSRFToken", csrftoken);
+            }
+        }
+    });
+
+    // Set up global error handler
+    window.onerror = function(message, source, lineno, colno, error) {
+        console.error('Global error caught:', {
+            message: message,
+            source: source, 
+            lineno: lineno,
+            colno: colno,
+            error: error
+        });
+        return false;
+    };
+
+    // Add error handler for AJAX requests
+    $(document).ajaxError(function(event, jqXHR, settings, thrownError) {
+        console.error('AJAX error caught:', {
+            event: event,
+            jqXHR: jqXHR,
+            settings: settings,
+            thrownError: thrownError,
+            url: settings.url,
+            requestData: settings.data
+        });
+    });
+
+    let currentPriority = 0;
+    let lastPlayedEventId = null;
+    let lastPlayedEventPriority = null;
+    let isPaused = false;
+    let isSessionActive = false;
+    const playedEvents = new Set();
+    let currentApiRequest = null;
+
+    // Initialize variables for Kafka functionality
+    let currentKafkaRequest = null;
+
+    // Add a global variable to store the current event priority
+    let currentApiEventPriority = null;
+
+    function showNotification(message, type = 'success') {
+        // Clean up error message
+        const cleanMessage = message.split('LINE')[0].trim();
+        
+        // Create toast container if it doesn't exist
+        if (!$('#toast-container').length) {
+            $('body').append('<div id="toast-container" class="toast-container"></div>');
+        }
+        
+        // Create new toast with improved styling
+        const toast = $(`
+            <div class="toast align-items-center text-white bg-${type} border-0" role="alert" aria-live="assertive" aria-atomic="true">
+                <div class="d-flex">
+                    <div class="toast-body">
+                        <i class="bi ${type === 'success' ? 'bi-check-circle' : 
+                                     type === 'warning' ? 'bi-exclamation-triangle' : 
+                                     type === 'danger' ? 'bi-x-circle' : 'bi-info-circle'} me-2"></i>
+                        ${cleanMessage}
+                    </div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>
+            </div>
+        `);
+        
+        $('#toast-container').append(toast);
+        
+        // Initialize Bootstrap toast
+        const bsToast = new bootstrap.Toast(toast[0], {
+            animation: true,
+            autohide: true,
+            delay: 2000
+        });
+        
+        // Show the toast
+        bsToast.show();
+        
+        // Remove from DOM after hidden
+        toast.on('hidden.bs.toast', function() {
+            $(this).remove();
+        });
+    }
+
+    // Check for saved API configuration on page load
+    const savedConfig = localStorage.getItem('apiTaskConfig');
+    if (savedConfig) {
+        $('#runApiTaskBtn').prop('disabled', false);
+    }
+    
+    // Check for saved Kafka configuration on page load
+    const savedKafkaConfig = localStorage.getItem('kafkaTaskConfig');
+    if (savedKafkaConfig) {
+        const config = JSON.parse(savedKafkaConfig);
+        if (config.payload && config.payload.trim() !== '') {
+            $('#runKafkaTaskBtn').prop('disabled', false);
+        }
+    }
+    
+    // Initialize Django messages as toasts
+    $('.django-message').each(function() {
+        const message = $(this);
+        const type = message.data('type') || 'info';
+        const text = message.text().trim();
+        
+        // Convert Django message to toast notification
+        showNotification(text, type);
+        
+        // Remove the original message element
+        message.remove();
+    });
+    
+    // ... rest of your document.ready code ...
+
+    function updateSessionStatus(status) {
+        $('#statusValue').text(status);
+        const playedEventsCount = $('.event-card.played').length;
+        
+        isSessionActive = (playedEventsCount > 0 && status !== 'Idle' && status !== 'Aborted') || status === 'Active';
+        isPaused = status === 'Paused';
+        
+        $('#pauseBtn').prop('disabled', !isSessionActive);
+        $('#nextEventBtn').prop('disabled', !isSessionActive || !isPaused);
+        $('[name="abort_mock"]').prop('disabled', !isSessionActive && playedEventsCount === 0);
+        $('[name="reset_mock"]').prop('disabled', playedEventsCount === 0);
+        
+        $('#pauseBtn').toggleClass('active', isPaused);
+        
+        // Update play button states based on session status
+        if (isPaused) {
+            $('.play-event-btn').prop('disabled', true);
+        } else if (isSessionActive) {
+            updateEventStates();
+        }
+        
+        $(document).trigger('sessionStatusChanged');
+    }
+
+    function updateEventStates() {
+        if (isPaused) {
+            $('.play-event-btn').prop('disabled', true);
+            return;
+        }
+
+        $('.event-card').each(function() {
+            const priority = parseInt($(this).data('priority'));
+            const playBtn = $(this).find('.play-event-btn');
+            const isPlayed = $(this).hasClass('played');
+            
+            // Enable play button if it's the next event in sequence or for replay
+            const isNextEvent = priority === Math.min(...$('.event-card').filter(':not(.played)').map(function() {
+                return parseInt($(this).data('priority'));
+            }).get());
+            
+            playBtn.prop('disabled', (!isNextEvent && !isPlayed));
+            playBtn.find('.button-text').text(isPlayed ? 'Play Again' : 'Play');
+        });
+        
+        $('#priorityValue').text(currentPriority);
+    }
+
+    $(document).on('click', '.play-event-btn', function() {
+        const eventId = $(this).data('event-id');
+        const priority = parseInt($(this).closest('.event-card').data('priority'));
+        const isPlayed = $(this).closest('.event-card').hasClass('played');
+        const button = $(this);
+        
+        // Disable button and show loading state
+        button.prop('disabled', true);
+        const originalText = button.find('.button-text').text();
+        button.find('.button-text').text('Sending...');
+        
+        // Only allow replay for the highest priority played event
+        if (isPlayed && priority !== window.lastPlayedPriority) {
+            return;
+        }
+        
+        $.ajax({
+            url: "{% url 'flight-detail' flight.pk %}",
+            method: 'POST',
+            data: {
+                play_event: true,
+                event_id: eventId,
+                reset_event: isPlayed,
+                csrfmiddlewaretoken: '{{ csrf_token }}'
+            },
+            timeout: window.API_TIMEOUT,
+            success: function(response) {
+                if (response.status === 'success') {
+                    showNotification('Event played successfully', 'success');
+                    if (!isPlayed) {
+                        markEventsAsPlayedAfterSuccess(priority);
+                    }
+                } else {
+                    showNotification(response.message || 'Failed to play event', 'danger');
+                }
+            },
+            error: function(xhr, textStatus, errorThrown) {
+                let errorMessage;
+                if (textStatus === 'timeout') {
+                    errorMessage = `Request timed out after ${window.API_TIMEOUT/1000} seconds`;
+                } else if (xhr.responseJSON?.message) {
+                    errorMessage = xhr.responseJSON.message;
+                } else {
+                    errorMessage = 'Failed to play event: ' + (errorThrown || 'Unknown error');
+                }
+                showNotification(errorMessage, 'danger');
+            },
+            complete: function() {
+                // Reset button state
+                button.prop('disabled', false);
+                button.find('.button-text').text(originalText);
+                // Call the function that correctly updates all button states
+                updatePlayButtonStates();
+            }
+        });
+    });
+
+    // Reset advanced configuration collapse state on page load
+    $('#advancedConfig').collapse('hide');
+
+    // Handle Pause button
+    $('#pauseBtn').click(function() {
+        if (isPaused) {
+            isPaused = false;
+            updateSessionStatus('Active');
+            $(this).removeClass('active');
+            $(this).find('i').removeClass('bi-play-circle').addClass('bi-pause-circle');
+            $(this).attr('title', 'Pause Session');
+            $(this).tooltip('dispose').tooltip();
+            // Re-enable play buttons based on priority when resuming
+            updateEventStates();
+        } else {
+            isPaused = true;
+            updateSessionStatus('Paused');
+            $(this).addClass('active');
+            $(this).find('i').removeClass('bi-pause-circle').addClass('bi-play-circle');
+            $(this).attr('title', 'Resume Session');
+            $(this).tooltip('dispose').tooltip();
+            // Disable all play buttons when pausing
+            $('.play-event-btn').prop('disabled', true);
+        }
+    });
+
+    // Monitor cleanup query input
+    $('#id_cleanup_query').on('input', function() {
+        $('#runCleanupBtn').prop('disabled', !$(this).val().trim());
+    });
+
+    // Initialize cleanup button state
+    $('#runCleanupBtn').prop('disabled', !$('#id_cleanup_query').val().trim());
+
+    // Handle abort mock session with better notifications
+    $('[name="abort_mock"]').on('click', function(e) {
+        e.preventDefault();
+        showNotification('Aborting mock session...', 'warning');
+        showNotification('Running cleanup queries...', 'info');
+        
+        $.post("{% url 'flight-detail' flight.pk %}", {
+            'abort_mock': true,
+            'csrfmiddlewaretoken': $('input[name=csrfmiddlewaretoken]').val()
+        })
+        .done(function(response) {
+            if (response.status === 'success' || response.status === 'partial_success') {
+                showNotification('Mock session aborted successfully', 'success');
+                
+                if (response.cleanup_success) {
+                    showNotification('Cleanup queries executed successfully', 'success');
+                } else if (response.cleanup_error) {
+                    showNotification('Cleanup query failed: ' + response.cleanup_error, 'danger');
+                }
+                
+                updateSessionStatus('Aborted');
+                
+                // Store aborted state in memory
+                const abortedEvents = new Set(response.aborted_events || []);
+                
+                // Update unplayed events to show aborted status
+                $('.event-card').each(function() {
+                    const card = $(this);
+                    
+                    if (!card.hasClass('played')) {
+                        // Update badge for non-played events
+                        const badge = card.find('.badge');
+                        badge.removeClass('bg-secondary').addClass('bg-danger').text('Aborted');
+                        
+                        // Disable play button without changing text
+                        const playButton = card.find('.play-event-btn');
+                        playButton.prop('disabled', true);
+                    }
+                });
+                
+                // Disable session controls
+                $('#pauseBtn').prop('disabled', true);
+                $('#nextEventBtn').prop('disabled', true);
+                $('[name="abort_mock"]').prop('disabled', true);
+                $('[name="reset_mock"]').prop('disabled', false);
+            } else {
+                showNotification(response.message || 'Failed to abort mock session', 'danger');
+                if (response.cleanup_error) {
+                    showNotification('Cleanup query failed: ' + response.cleanup_error, 'danger');
+                }
+            }
+        })
+        .fail(function(xhr) {
+            showNotification('Failed to abort mock session: ' + (xhr.responseJSON?.message || 'Unknown error'), 'danger');
+            if (xhr.responseJSON?.cleanup_error) {
+                showNotification('Cleanup query failed: ' + xhr.responseJSON.cleanup_error, 'danger');
+            }
+        });
+        return false;
+    });
+
+    // Monitor Kafka/API task configurations
+    function updateKafkaButtonState() {
+        const hasConfig = $('#kafkaPayload').val().trim() !== '';
+        $('#runKafkaTaskBtn').prop('disabled', !hasConfig);
+    }
+
+    function updateApiButtonState() {
+        // Check if we have a saved configuration
+        const savedConfig = localStorage.getItem('apiTaskConfig');
+        const button = $('#runApiTaskBtn');
+        button.prop('disabled', !savedConfig);
+        
+        // Update button icon based on whether a request is in progress
+        if (button.data('requestInProgress')) {
+            button.find('i').removeClass('bi-play-fill').addClass('bi-stop-fill');
+            button.attr('title', 'Stop API call');
+        } else {
+            button.find('i').removeClass('bi-stop-fill').addClass('bi-play-fill');
+            button.attr('title', 'Run API task');
+        }
+        button.tooltip('dispose').tooltip();
+    }
+
+    $('#kafkaPayload').on('input', updateKafkaButtonState);
+    $('#apiPayload').on('input', updateApiButtonState);
+
+    // Handle Next Event button
+    $('#nextEventBtn').click(function() {
+        const nextEvent = $('.event-card').filter(function() {
+            const priority = parseInt($(this).data('priority'));
+            return priority > currentPriority;
+        }).first();
+
+        if (nextEvent.length) {
+            const eventId = nextEvent.attr('id').replace('event-', '');
+            const priority = parseInt(nextEvent.data('priority'));
+            playEvent(eventId, priority);
+        }
+    });
+
+    // Handle reset mock session with better notifications
+    $('[name="reset_mock"]').on('click', function(e) {
+        e.preventDefault();
+        showNotification('Resetting mock session...', 'info');
+        showNotification('Running cleanup queries...', 'info');
+        
+        $.post("{% url 'flight-detail' flight.pk %}", {
+            'reset_mock': true,
+            'csrfmiddlewaretoken': $('input[name=csrfmiddlewaretoken]').val()
+        })
+        .done(function(response) {
+            if (response.status === 'success' || response.status === 'partial_success') {
+                showNotification('Mock session reset successfully', 'success');
+                
+                if (response.cleanup_success) {
+                    showNotification('Cleanup queries executed successfully', 'success');
+                } else if (response.cleanup_error) {
+                    showNotification('Cleanup query failed: ' + response.cleanup_error, 'warning');
+                }
+                
+                // Reset all UI elements
+                currentPriority = 0;
+                $('#priorityValue').text('0');
+                $('#playedCount').text('0');
+                
+                // Reset all event cards
+                $('.event-card').each(function() {
+                    const card = $(this);
+                    card.removeClass('played');
+                    
+                    // Reset badge
+                    const badge = card.find('.badge');
+                    badge.removeClass('bg-success bg-danger')
+                         .addClass('bg-secondary')
+                         .text('Pending');
+                    
+                    // Reset play button to original state
+                    const playButton = card.find('.play-event-btn');
+                    playButton.prop('disabled', false)
+                             .removeClass('btn-secondary btn-outline-primary')
+                             .addClass('btn-primary');
+                    
+                    // Make sure Play text is visible
+                    const buttonText = playButton.find('.button-text');
+                    buttonText.text('Play');
+                });
+                
+                // Reset session status
+                updateSessionStatus('Idle');
+                
+                // Clear any stored states
+                playedEvents = new Set();
+                lastPlayedEventId = null;
+                lastPlayedEventPriority = null;
+                isPaused = false;
+                
+                // Update button states
+                $('#pauseBtn')
+                    .removeClass('active')
+                    .prop('disabled', false)
+                    .find('i')
+                    .removeClass('bi-play-circle')
+                    .addClass('bi-pause-circle');
+                $('#nextEventBtn').prop('disabled', false);
+                $('[name="abort_mock"]').prop('disabled', false);
+                $('[name="reset_mock"]').prop('disabled', false);
+            } else {
+                showNotification(response.message || 'Failed to reset mock session', 'danger');
+                if (response.cleanup_error) {
+                    showNotification('Cleanup query failed: ' + response.cleanup_error, 'danger');
+                }
+            }
+        })
+        .fail(function(xhr) {
+            showNotification('Failed to reset mock session: ' + (xhr.responseJSON?.message || 'Unknown error'), 'danger');
+            if (xhr.responseJSON?.cleanup_error) {
+                showNotification('Cleanup query failed: ' + xhr.responseJSON.cleanup_error, 'danger');
+            }
+        });
+        return false;
+    });
+
+    // Default query template
+    const defaultQuery = "DELETE FROM flight_status WHERE flight_unique_id = '{flight_unique_id}'";
+    
+    // Set default cleanup query if empty
+    function ensureDefaultCleanupQuery() {
+        const queryInput = $('#id_cleanup_query');
+        if (!queryInput.val().trim()) {
+            queryInput.val(defaultQuery);
+        }
+        // Enable run button since we always have a query
+        $('#runCleanupBtn').prop('disabled', false);
+    }
+    
+    // Handle default query button
+    $('#defaultQueryBtn').click(function() {
+        $('#id_cleanup_query').val(defaultQuery);
+        $('#runCleanupBtn').prop('disabled', false);
+    });
+
+    // Handle run cleanup query button
+    $('#runCleanupBtn').click(function() {
+        const query = $('#id_cleanup_query').val().trim();
+        if (query) {
+            runCleanupQuery(query);
+        } else {
+            // If no query is provided, use the default query
+            $('#id_cleanup_query').val(defaultQuery);
+            runCleanupQuery(defaultQuery);
+        }
+    });
+
+    // Always collapse advanced config on page load
+    $('#advancedConfig').collapse('hide');
+    
+    // Remove stored collapse state on page unload
+    $(window).on('unload', function() {
+        localStorage.removeItem('advancedConfigState');
+    });
+
+    // Ensure cleanup query is set before starting mock session
+    $('[name="start_mock"]').on('click', function(e) {
+        ensureDefaultCleanupQuery();
+        
+        // Show a notification that we're running cleanup queries
+        showNotification('Running cleanup queries...', 'info');
+        
+        // Note: The server will run the query automatically as part of start_mock_session
+        // We don't need to run it here
+    });
+
+    // Function to run cleanup query
+    function runCleanupQuery(query) {
+        $.post("{% url 'run-cleanup' flight.pk %}", {
+            cleanup_query: query,
+            csrfmiddlewaretoken: '{{ csrf_token }}'
+        })
+        .done(function(response) {
+            if (response.status === 'success') {
+                showNotification('Cleanup query executed successfully', 'success');
+            } else {
+                showNotification(response.message || 'Failed to execute cleanup query', 'danger');
+            }
+        })
+        .fail(function(xhr) {
+            showNotification('Failed to execute cleanup query: ' + (xhr.responseJSON?.message || 'Unknown error'), 'danger');
+        });
+    }
+
+    // Monitor cleanup query input but don't disable run button
+    $('#id_cleanup_query').on('input', function() {
+        if (!$(this).val().trim()) {
+            $(this).val(defaultQuery);
+        }
+    });
+
+    // Initialize tooltips
+    $('[data-bs-toggle="tooltip"]').tooltip();
+
+    // Handle configuration collapse state
+    const configState = localStorage.getItem('advancedConfigState');
+    if (configState === 'shown') {
+        $('#advancedConfig').addClass('show');
+    }
+    
+    $('#advancedConfig').on('shown.bs.collapse hidden.bs.collapse', function() {
+        localStorage.setItem('advancedConfigState', 
+            $(this).hasClass('show') ? 'shown' : 'hidden');
+    });
+
+    // Load template data when modals are opened
+    $('#kafkaTaskModal').on('show.bs.modal', function() {
+        // Initialize with empty payload
+        $('#kafkaPayload').removeClass('is-invalid').val('');
+        
+        // Load saved configuration if exists
+        const savedConfig = localStorage.getItem('kafkaConfig');
+        if (savedConfig) {
+            const config = JSON.parse(savedConfig);
+            $('#bootstrapServers').val(config.bootstrapServers || '');
+            $('#topicName').val(config.topicName || '');
+            $('#schemaRegistryUrl').val(config.schemaRegistryUrl || '');
+            if (config.payload) {
+                $('#kafkaPayload').val(config.payload);
+            }
+        }
+    });
+
+    $('#apiPayload').on('input', updateApiButtonState);
+
+    // Handle file upload and paste mutual exclusivity
+    $('input[name="csv_file"]').on('change', function() {
+        if ($(this).val()) {
+            $('textarea[name="csv_content"]').prop('disabled', true);
+        } else {
+            $('textarea[name="csv_content"]').prop('disabled', false);
+        }
+    });
+
+    $('textarea[name="csv_content"]').on('input', function() {
+        if ($(this).val()) {
+            $('input[name="csv_file"]').prop('disabled', true);
+        } else {
+            $('input[name="csv_file"]').prop('disabled', false);
+        }
+    });
+
+    // Clear form when modal is hidden
+    $('#importCSVModal').on('hidden.bs.modal', function() {
+        $('#csvImportForm')[0].reset();
+        $('input[name="csv_file"], textarea[name="csv_content"]').prop('disabled', false);
+    });
+
+    // Add CSS for configuration attention
+    $('<style>')
+        .text(`
+            #configForm.needs-attention {
+                animation: highlight-config 3s ease;
+            }
+            
+            @keyframes highlight-config {
+                0%, 100% { box-shadow: none; }
+                50% { box-shadow: 0 0 15px rgba(255, 193, 7, 0.5); }
+            }
+        `)
+        .appendTo('head');
+
+    // Handle delete event button
+    $('.delete-event-btn').click(function() {
+        const eventId = $(this).data('event-id');
+        const form = $('#deleteEventForm');
+        const action = form.attr('action').replace('/0', `/${eventId}`);
+        form.attr('action', action);
+    });
+
+    // Handle edit event button
+    $('.edit-event-btn').click(function() {
+        const eventId = $(this).data('event-id');
+        const form = $('#editEventForm');
+        const action = form.attr('action').replace('/0', `/${eventId}`);
+        form.attr('action', action);
+        
+        // Load event data
+        $.get(`{% url 'get-event' flight.pk %}?event_id=${eventId}`, function(data) {
+            $.get(`{% url 'get-event-form' flight.pk %}?event_id=${eventId}`, function(formHtml) {
+                $('#editEventFormContent').html(formHtml);
+            });
+        });
+    });
+
+    // Handle database configuration visibility
+    $('#id_use_custom_db').change(function() {
+        const isChecked = $(this).is(':checked');
+        $('#dbConfigSection').collapse(isChecked ? 'show' : 'hide');
+    });
+
+    // When showing db config section, also check the checkbox if not already checked
+    $('#dbConfigSection').on('show.bs.collapse', function() {
+        if (!$('#id_use_custom_db').is(':checked')) {
+            $('#id_use_custom_db').prop('checked', true);
+        }
+    });
+
+    // Initialize the section based on saved state
+    if ($('#id_use_custom_db').is(':checked')) {
+        $('#dbConfigSection').collapse('show');
+    }
+
+    // Initialize popovers with manual trigger
+    const popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'));
+    const popoverList = popoverTriggerList.map(function (popoverTriggerEl) {
+        return new bootstrap.Popover(popoverTriggerEl, {
+            container: 'body',
+            trigger: 'manual'
+        });
+    });
+
+    // Handle hover events for popover
+    $(document).on('mouseenter', '[data-bs-toggle="popover"]', function() {
+        const popover = bootstrap.Popover.getInstance(this);
+        if (popover) {
+            popover.show();
+            
+            // Add event listeners after popover is shown
+            const popoverElement = document.querySelector('.popover');
+            if (popoverElement) {
+                const hidePopover = () => {
+                    if (!popoverElement.matches(':hover') && !this.matches(':hover')) {
+                        popover.hide();
+                    }
+                };
+
+                $(this).on('mouseleave.popover', function() {
+                    setTimeout(() => hidePopover(), 100);
+                });
+
+                $(popoverElement).on('mouseleave.popover', function() {
+                    setTimeout(() => hidePopover(), 100);
+                });
+            }
+        }
+    });
+
+    // Clean up event listeners when popover is hidden
+    $(document).on('hidden.bs.popover', function() {
+        $('[data-bs-toggle="popover"]').off('mouseleave.popover');
+        $('.popover').off('mouseleave.popover');
+    });
+
+    // Function to validate JSON
+    function isValidJson(str) {
+        try {
+            JSON.parse(str);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Function to validate form
+    function validateApiForm() {
+        let isValid = true;
+        const form = $('#apiTaskForm');
+        
+        // Reset previous validation state
+        form.find('.is-invalid').removeClass('is-invalid');
+        
+        // Validate User ID or UUID
+        const userId = $('#userId').val().trim();
+        const uuid = $('#uuid').val().trim();
+        if (!userId && !uuid) {
+            $('#userId, #uuid').addClass('is-invalid');
+            isValid = false;
+        }
+        
+        // Validate URL
+        const url = $('#apiUrl').val().trim();
+        if (!url || !url.startsWith('http')) {
+            $('#apiUrl').addClass('is-invalid');
+            isValid = false;
+        }
+        
+        // Validate JSON payload
+        const payload = $('#requestPayload').val().trim();
+        if (!payload || !isValidJson(payload)) {
+            $('#requestPayload').addClass('is-invalid');
+            isValid = false;
+        }
+        
+        return isValid;
+    }
+
+    // Function to mark events as played after successful API request
+    function markEventsAsPlayedAfterSuccess(priority) {
+        // Update global current priority
+        currentPriority = priority;
+        window.lastPlayedPriority = priority;
+
+        $('.event-card').each(function() {
+            const cardPriority = parseInt($(this).data('priority'));
+            if (cardPriority <= priority) {
+                const card = $(this);
+                card.addClass('played');
+                const badge = card.find('.badge');
+                badge.removeClass('bg-secondary').addClass('bg-success').text('Played');
+                
+                const playButton = card.find('.play-event-btn');
+                if (cardPriority === priority) {
+                    // Current priority event gets "Play Again"
+                    playButton.find('.button-text').text('Play Again');
+                    playButton.prop('disabled', false)
+                             .removeClass('btn-primary')
+                             .addClass('btn-outline-primary');
+                } else {
+                    // Lower priority events are disabled
+                    playButton.find('.button-text').text('Played');
+                    playButton.prop('disabled', true)
+                             .removeClass('btn-primary btn-outline-primary')
+                             .addClass('btn-secondary');
+                }
+            }
+        });
+        
+        // Update counters and status
+        const playedCount = $('.event-card.played').length;
+        const totalCount = $('.event-card').length;
+        $('#playedCount').text(playedCount);
+        $('#priorityValue').text(priority);
+        
+        // Update session status if needed
+        if (playedCount > 0) {
+            updateSessionStatus('Active');
+        }
+
+        // Enable next event button if there are more events
+        $('#nextEventBtn').prop('disabled', $('.event-card').length === playedCount);
+    }
+
+    // Function to update play button states based on current state
+    function updatePlayButtonStates() {
+        console.log('[updatePlayButtonStates] Entered function.'); // Log function entry
+        // Find the highest priority played event
+        let highestPlayedPriority = 0;
+        $('.event-card.played').each(function() {
+            const priority = parseInt($(this).data('priority'));
+            highestPlayedPriority = Math.max(highestPlayedPriority, priority);
+        });
+        
+        // Update global states
+        currentPriority = highestPlayedPriority;
+        window.lastPlayedPriority = highestPlayedPriority;
+        
+        $('.event-card').each(function() {
+            const cardPriority = parseInt($(this).data('priority'));
+            const isPlayed = $(this).hasClass('played');
+            const playButton = $(this).find('.play-event-btn');
+            const buttonText = playButton.find('.button-text');
+            const badge = $(this).find('.badge');
+            
+            if (cardPriority <= highestPlayedPriority) {
+                // This event should be marked as played
+                $(this).addClass('played');
+                badge.removeClass('bg-secondary').addClass('bg-success').text('Played');
+                
+                if (cardPriority === highestPlayedPriority) {
+                    // Last played event gets "Play Again" and remains enabled
+                    buttonText.text('Play Again');
+                    playButton.prop('disabled', false)
+                             .removeClass('btn-primary')
+                             .addClass('btn-outline-primary');
+                } else {
+                    // Lower priority events are disabled
+                    buttonText.text('Played');
+                    playButton.prop('disabled', true)
+                             .removeClass('btn-primary btn-outline-primary')
+                             .addClass('btn-secondary');
+                }
+            } else {
+                // Higher priority events are always playable
+                buttonText.text('Play');
+                playButton.prop('disabled', false)
+                         .removeClass('btn-outline-primary btn-secondary')
+                         .addClass('btn-primary');
+            }
+        });
+        
+        // Update counters
+        let played = $('.event-card.played').length;
+        let total = $('.event-card').length;
+        $('#playedCount').text(played);
+        $('#priorityValue').text(highestPlayedPriority);
+
+        // Enable/disable next event button
+        $('#nextEventBtn').prop('disabled', played === total);
+        console.log('[updatePlayButtonStates] Exiting function.'); // Log exit
+    }
+
+    // Call updatePlayButtonStates on page load to maintain consistency
+    $(document).ready(function() {
+        updatePlayButtonStates();
+    });
+
+    // Update the API request function to use the new marking function
+    function sendApiRequest(config) {
+        const button = $('#sendApiRequest');
+        const spinner = button.find('.spinner-border');
+        const icon = button.find('.bi-send');
+        
+        button.prop('disabled', true);
+        spinner.removeClass('d-none');
+        icon.addClass('d-none');
+
+        $.ajax({
+            url: config.url,
+            method: 'POST',
+            data: config.payload,
+            contentType: 'application/json',
+            headers: config.headers || {},
+            timeout: window.API_TIMEOUT
+        })
+        .done(function(response) {
+            $('#apiResponseContent').text(JSON.stringify(response, null, 2));
+            $('#apiResponseStatus').removeClass('d-none');
+            $('#apiResponse').removeClass('d-none').addClass('animate__animated animate__fadeIn');
+            showModalMessage('API request successful', 'success', 'apiTaskModal');
+            
+            // Only mark events as played after successful request
+            const currentEventPriority = parseInt($('#requestPayload').data('eventPriority'));
+            if (currentEventPriority) {
+                markEventsAsPlayedAfterSuccess(currentEventPriority);
+            }
+        })
+        .fail(function(xhr, status, error) {
+            let errorMessage;
+            if (status === 'timeout') {
+                errorMessage = 'Request timed out';
+        } else {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    errorMessage = response.message || 'Request failed';
+                } catch (e) {
+                    errorMessage = xhr.responseText || 'Request failed';
+                }
+            }
+            $('#apiResponseContent').text(errorMessage);
+            $('#apiResponseError').removeClass('d-none');
+            $('#apiResponse').removeClass('d-none').addClass('animate__animated animate__fadeIn');
+            showModalMessage('API request failed: ' + errorMessage, 'danger', 'apiTaskModal');
+        })
+        .always(function() {
+            button.prop('disabled', false);
+            spinner.addClass('d-none');
+            icon.removeClass('d-none');
+        });
+    }
+
+    // Modify the payload generation to store the event priority
+    function processNextEvent(index) {
+        if (index >= events.length) {
+            console.log('No more events to process');
+            showModalMessage('No valid events found for payload generation', 'warning', 'apiTaskModal');
+            $('#requestPayload').val('').addClass('is-invalid');
+            currentApiEventPriority = null;  // Reset priority
+            restoreButtonState();
+            return;
+        }
+
+        const event = events[index];
+        console.log(`Processing event ID=${event.id}, Priority=${event.priority}`);
+
+        $.get(`{% url 'get-event' flight.pk %}?event_id=${event.id}`, function(data) {
+            console.log('Retrieved event data:', data);
+            processedEvents++;
+
+            if (hasValidFid(data.raw_event)) {
+                console.log(`Found event with valid fid at priority ${event.priority}`);
+                foundValidEvent = true;
+                try {
+                    const rawEvent = typeof data.raw_event === 'string' ? JSON.parse(data.raw_event) : data.raw_event;
+                    console.log('Using raw event:', rawEvent);
+
+                    // Store the event priority globally and in a hidden input
+                    currentApiEventPriority = event.priority;
+                    $('#requestPayload')
+                        .val(JSON.stringify(rawEvent, null, 2))
+                        .removeClass('is-invalid');
+                        
+                    showModalMessage(`Payload generated successfully using event with priority ${event.priority}`, 'success', 'apiTaskModal');
+                    restoreButtonState();
+                } catch (error) {
+                    console.error('Error generating payload:', error);
+                    currentApiEventPriority = null;  // Reset priority on error
+                    processNextEvent(index + 1);
+                }
+            } else {
+                console.log(`Event ID=${event.id} does not have a valid fid, checking next event`);
+                processNextEvent(index + 1);
+            }
+        }).fail(function(xhr, status, error) {
+            console.error('Failed to fetch event data:', { status, error, response: xhr.responseText });
+            currentApiEventPriority = null;  // Reset priority on error
+            processNextEvent(index + 1);
+        });
+    }
+
+    // ... rest of your document.ready code ...
+
+    // Function to reset modal state
+    function resetModalState() {
+        // Clear any existing notifications
+        $('#modalMessageContainer').addClass('d-none');
+        $('#modalMessageText').text('');
+        
+        // Reset generate payload button state
+        const generateBtn = $('#generatePayloadBtn');
+        generateBtn.prop('disabled', false);
+        generateBtn.find('.spinner-border').addClass('d-none');
+        generateBtn.find('.bi-magic').removeClass('d-none');
+        
+        // Reset payload textarea and priority
+        $('#requestPayload').removeClass('is-invalid');
+        currentApiEventPriority = null;  // Reset the priority when modal state is reset
+    }
+
+    // Handle modal show/hide events
+    $('#apiTaskModal').on('show.bs.modal', function() {
+        resetModalState();
+        
+        // Load saved configuration
+        const savedConfig = localStorage.getItem('apiTaskConfig');
+        if (savedConfig) {
+            const config = JSON.parse(savedConfig);
+            $('#userId').val(config.userId || '');
+            $('#uuid').val(config.uuid || '');
+            $('#label').val(config.label || 'MY_FLIGHT');
+            $('#apiUrl').val(config.url || '');
+            $('#requestPayload').val(config.payload || '');
+            
+            if (Object.keys(config.headers || {}).length > 0) {
+                $('#includeHeaders').prop('checked', true);
+                // Handle headers population here
+            }
+        }
+    });
+
+    // Function to ensure message container exists
+    function ensureMessageContainer(modalId) {
+        const containerId = modalId === 'apiTaskModal' ? 'modalMessageContainer' : 'kafkaMessageContainer';
+        const container = $(`#${containerId}`);
+        
+        if (!container.length) {
+            const newContainer = $(`
+                <div id="${containerId}" class="alert d-none mb-3">
+                    <button type="button" class="btn-close float-end" data-bs-dismiss="alert"></button>
+                    <div class="d-flex align-items-center">
+                        <i class="bi me-2"></i>
+                        <span id="${modalId === 'apiTaskModal' ? 'modalMessageText' : 'kafkaMessageText'}"></span>
+                    </div>
+                </div>
+            `);
+            
+            $(`#${modalId} form`).prepend(newContainer);
+            return newContainer;
+        }
+        
+        return container;
+    }
+
+    // Function to show modal message with improved state handling
+    function showModalMessage(message, type, modalId) {
+        const container = ensureMessageContainer(modalId);
+        const icon = container.find('.bi');
+        const text = container.find('span');
+        
+        container.removeClass('d-none alert-success alert-warning alert-danger animate__animated animate__fadeIn');
+        
+        setTimeout(() => {
+            container.addClass(`alert-${type} animate__animated animate__fadeIn`);
+            
+            icon.removeClass('bi-check-circle bi-exclamation-triangle bi-x-circle')
+                .addClass(type === 'success' ? 'bi-check-circle' : 
+                         type === 'warning' ? 'bi-exclamation-triangle' : 'bi-x-circle');
+            
+            text.text(message);
+            
+            // Show the container
+            container.removeClass('d-none');
+
+            // Handle notification dismissal via X button
+            container.find('.btn-close').off('click').on('click', function() {
+                container.addClass('d-none');
+            });
+        }, 10);
+    }
+
+    // Function to get selected event data
+    function getSelectedEvent() {
+        const selectedEventCard = $('.event-card.selected');
+        if (!selectedEventCard.length) {
+            return null;
+        }
+
+        const eventId = selectedEventCard.attr('id').replace('event-', '');
+        const priority = parseInt(selectedEventCard.data('priority'));
+        
+        return {
+            id: eventId,
+            priority: priority,
+            fid: selectedEventCard.data('fid')
+        };
+    }
+
+    // Function to mark events based on priority
+    function markEventsBasedOnPriority(targetPriority) {
+        console.log('[markEventsBasedOnPriority] Entered function with priority:', targetPriority); // Log entry and priority
+        if (!targetPriority) {
+            console.warn('[markEventsBasedOnPriority] No priority provided for marking events');
+            return;    
+        }
+        
+        console.log('Marking events with priority up to:', targetPriority);
+        
+        $('.event-card').each(function() {
+            const eventCard = $(this);
+            const eventPriority = parseInt(eventCard.data('priority'));
+            const playButton = eventCard.find('.play-button');
+            
+            if (eventPriority <= targetPriority) {
+                // Mark as played
+                playButton.addClass('played').removeClass('not-played');
+                eventCard.addClass('event-played');
+                
+                if (eventPriority === targetPriority) {
+                    // Only the highest played priority can be played again
+                    playButton.prop('disabled', false)
+                             .text('Play Again')
+                             .removeClass('btn-success')
+                             .addClass('btn-primary');
+                } else {
+                    // Lower priorities are disabled and marked as played
+                    playButton.prop('disabled', true)
+                             .text('Played')
+                             .removeClass('btn-primary')
+                             .addClass('btn-success');
+                }
+            } else {
+                // Higher priorities remain enabled for play
+                playButton.prop('disabled', false)
+                         .text('Play')
+                         .removeClass('btn-success')
+                         .addClass('btn-primary')
+                         .removeClass('played')
+                         .addClass('not-played');
+                eventCard.removeClass('event-played');
+            }
+        });
+
+        // Save states to localStorage
+        saveEventStates();
+        console.log('[markEventsBasedOnPriority] Exiting function.'); // Log exit
+    }
+
+    // Function to save event states
+    function saveEventStates() {
+        const eventStates = {};
+        $('.event-card').each(function() {
+            const card = $(this);
+            const eventId = card.attr('id').replace('event-', '');
+            const playButton = card.find('.play-button');
+            eventStates[eventId] = {
+                played: playButton.hasClass('played'),
+                priority: parseInt(card.data('priority')),
+                buttonText: playButton.text(),
+                buttonState: {
+                    disabled: playButton.prop('disabled'),
+                    classes: {
+                        btnPrimary: playButton.hasClass('btn-primary'),
+                        btnSuccess: playButton.hasClass('btn-success')
+                    }
+                }
+            };
+        });
+        
+        // Also save the current highest played priority
+        eventStates._currentPriority = window.currentApiEventPriority;
+        
+        localStorage.setItem('eventStates', JSON.stringify(eventStates));
+        console.log('Saved event states:', eventStates);
+    }
+
+    // Function to restore event states
+    function restoreEventStates() {
+        const savedStates = localStorage.getItem('eventStates');
+        if (savedStates) {
+            const states = JSON.parse(savedStates);
+            
+            // Restore the current priority first
+            if (states._currentPriority) {
+                window.currentApiEventPriority = states._currentPriority;
+            }
+            
+            // Then restore each event's state
+            Object.entries(states).forEach(([eventId, state]) => {
+                if (eventId === '_currentPriority') return; // Skip the priority entry
+                
+                const eventCard = $(`#event-${eventId}`);
+                if (!eventCard.length) return; // Skip if event doesn't exist
+                
+                const playButton = eventCard.find('.play-button');
+                const priority = parseInt(eventCard.data('priority'));
+                
+                if (state.played) {
+                    playButton.addClass('played').removeClass('not-played');
+                    eventCard.addClass('event-played');
+                } else {
+                    playButton.removeClass('played').addClass('not-played');
+                    eventCard.removeClass('event-played');
+                }
+                
+                // Restore button text and state
+                playButton.text(state.buttonText || 'Play');
+                playButton.prop('disabled', state.buttonState?.disabled || false);
+                
+                if (state.buttonState?.classes?.btnSuccess) {
+                    playButton.removeClass('btn-primary').addClass('btn-success');
+                } else {
+                    playButton.removeClass('btn-success').addClass('btn-primary');
+                }
+                
+                // Ensure higher priorities are always enabled
+                if (window.currentApiEventPriority && priority > window.currentApiEventPriority) {
+                    playButton.prop('disabled', false)
+                             .text('Play')
+                             .removeClass('btn-success')
+                             .addClass('btn-primary')
+                             .removeClass('played')
+                             .addClass('not-played');
+                    eventCard.removeClass('event-played');
+                }
+            });
+        }
+    }
+
+    // Call restore on page load
+    $(document).ready(function() {
+        restoreEventStates();
+    });
+
+    // ... existing code ...
+
+    // Handle generate Kafka payload button click
+    $('#generateKafkaPayloadBtn').click(function() {
+        console.log('Generate Kafka Payload button clicked');
+        const button = $(this);
+        const buttonSpinner = button.find('.spinner-border');
+        const buttonIcon = button.find('.bi-magic');
+        
+        // Show loading states
+        button.prop('disabled', true);
+        buttonSpinner.removeClass('d-none');
+        buttonIcon.addClass('d-none');
+        console.log('Kafka Generate button loading state activated');
+
+        // Function to restore button state
+        function restoreButtonState() {
+            console.log('Restoring Kafka generate button state');
+            button.prop('disabled', false);
+            buttonSpinner.addClass('d-none');
+            buttonIcon.removeClass('d-none');
+        }
+
+        setTimeout(() => {
+            console.log('Starting Kafka payload generation process');
+            const events = $('.event-card').toArray()
+                .map(card => {
+                    const element = $(card);
+                    const id = element.attr('id').replace('event-', '');
+                    // Get the state from identified_changes
+                    const changesText = element.find('pre code').text();
+                    console.log(`Found event: ID=${id}, Changes=${changesText}`);
+                    return { element, id, changesText };
+                });
+
+            console.log(`Total events found: ${events.length}`);
+
+            if (events.length === 0) {
+                console.log('No events found, showing warning');
+                showModalMessage('No events found. Please add some events before generating the payload.', 'warning', 'kafkaTaskModal');
+                $('#kafkaPayload').val('').addClass('is-invalid');
+                restoreButtonState();
+                return;
+            }
+
+            // Find event with ADDED_TO_TRACKING in identified_changes
+            const trackingEvent = events.find(e => e.changesText && e.changesText.includes('ADDED_TO_TRACKING'));
+            console.log('Found tracking event:', trackingEvent);
+
+            if (!trackingEvent) {
+                console.log('No ADDED_TO_TRACKING event found, showing warning');
+                showModalMessage('No ADDED_TO_TRACKING event found. Please add the required event.', 'warning', 'kafkaTaskModal');
+                $('#kafkaPayload').val('').addClass('is-invalid');
+                restoreButtonState();
+                return;
+            }
+
+            // Get the event data
+            $.get(`{% url 'get-event' flight.pk %}?event_id=${trackingEvent.id}`, function(data) {
+                console.log('Retrieved event data:', data);
+                try {
+                    const rawEvent = typeof data.raw_event === 'string' ? JSON.parse(data.raw_event) : data.raw_event;
+                    console.log('Parsed raw event:', rawEvent);
+
+                    // Set the payload
+                    $('#kafkaPayload').val(JSON.stringify(rawEvent, null, 2)).removeClass('is-invalid');
+                    showModalMessage('Payload generated successfully from ADDED_TO_TRACKING event', 'success', 'kafkaTaskModal');
+                } catch (error) {
+                    console.error('Error generating Kafka payload:', error);
+                    showModalMessage('Error generating payload: ' + error.message, 'danger', 'kafkaTaskModal');
+                    $('#kafkaPayload').addClass('is-invalid');
+                }
+            }).fail(function(xhr, status, error) {
+                console.error('Failed to fetch event data:', { status, error, response: xhr.responseText });
+                showModalMessage('Failed to fetch event data', 'danger', 'kafkaTaskModal');
+                $('#kafkaPayload').addClass('is-invalid');
+            }).always(function() {
+                restoreButtonState();
+            });
+        }, 500);
+    });
+
+    // Reset API modal state when showing
+    $('#apiTaskModal').on('show.bs.modal', function() {
+        ensureMessageContainer('apiTaskModal');
+        $('#modalMessageContainer').addClass('d-none');
+        $('#requestPayload').removeClass('is-invalid');
+        
+        // Load saved configuration
+        const savedConfig = localStorage.getItem('apiTaskConfig');
+        if (savedConfig) {
+            const config = JSON.parse(savedConfig);
+            $('#userId').val(config.userId || '');
+            $('#uuid').val(config.uuid || '');
+            $('#label').val(config.label || 'MY_FLIGHT');
+            $('#apiUrl').val(config.url || '');
+            $('#requestPayload').val(config.payload || '');
+            
+            if (Object.keys(config.headers || {}).length > 0) {
+                $('#includeHeaders').prop('checked', true);
+            }
+        }
+    });
+
+    // Reset Kafka modal state when showing
+    $('#kafkaTaskModal').on('show.bs.modal', function() {
+        ensureMessageContainer('kafkaTaskModal');
+        $('#kafkaMessageContainer').addClass('d-none');
+        $('#kafkaPayload').removeClass('is-invalid').val('');  // Clear payload
+        
+        // Load saved configuration if exists
+        const savedConfig = localStorage.getItem('kafkaTaskConfig');
+        if (savedConfig) {
+            const config = JSON.parse(savedConfig);
+            $('#bootstrapServers').val(config.bootstrapServers || 'build-kafka.ixigo.com:9092');
+            $('#topicName').val(config.topicName || 'flight_booking_for_flight_status');
+            // Only set payload if it exists in saved config
+            if (config.payload) {
+                $('#kafkaPayload').val(config.payload);
+            }
+            
+            if (config.useSchemaRegistry) {
+                $('#useSchemaRegistry').prop('checked', true);
+                $('#schemaRegistrySection').removeClass('d-none');
+                $('#schemaRegistryUrl').val(config.schemaRegistryUrl || 'http://build-kafka.ixigo.com:8081');
+            }
+        } else {
+            // Set only connection defaults, leave payload empty
+            $('#bootstrapServers').val('build-kafka.ixigo.com:9092');
+            $('#topicName').val('flight_booking_for_flight_status');
+            $('#schemaRegistryUrl').val('http://build-kafka.ixigo.com:8081');
+            $('#kafkaPayload').val('');  // Ensure payload is empty
+        }
+    });
+
+    // Handle delete all events button
+    $('#deleteAllEventsBtn').click(function() {
+        const deleteAllEventsModal = new bootstrap.Modal(document.getElementById('deleteAllEventsModal'));
+        deleteAllEventsModal.show();
+    });
+
+    // Update delete all events button state when events change
+    function updateDeleteAllButtonState() {
+        const hasEvents = $('.event-card').length > 0;
+        $('#deleteAllEventsBtn').prop('disabled', !hasEvents);
+    }
+
+    // Call this function initially and after any event changes
+    updateDeleteAllButtonState();
+
+    // Handle custom headers functionality
+    $('#includeHeaders').change(function() {
+        const headersContainer = $('#headersContainer');
+        if ($(this).is(':checked')) {
+            headersContainer.removeClass('d-none').addClass('animate__animated animate__fadeIn');
+        } else {
+            headersContainer.addClass('d-none');
+            // Clear all custom headers except the first one
+            $('.header-row:not(:first)').remove();
+            // Clear values in the first row
+            $('.header-row:first input').val('');
+        }
+    });
+
+    // Add new header row
+    $('#addHeaderBtn').click(function() {
+        const newRow = $(`
+            <div class="header-row mb-2 animate__animated animate__fadeIn">
+                <div class="row g-2">
+                    <div class="col">
+                        <input type="text" class="form-control header-key" placeholder="Header Key">
+                    </div>
+                    <div class="col">
+                        <input type="text" class="form-control header-value" placeholder="Header Value">
+                    </div>
+                    <div class="col-auto">
+                        <button type="button" class="btn btn-outline-danger remove-header">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `);
+        $(this).before(newRow);
+    });
+
+    // Remove header row
+    $(document).on('click', '.remove-header', function() {
+        $(this).closest('.header-row').addClass('animate__animated animate__fadeOut');
+        setTimeout(() => {
+            $(this).closest('.header-row').remove();
+        }, 200);
+    });
+
+    // Handle saving API configuration
+    $('#saveApiConfig').click(function() {
+        if (!validateApiForm()) {
+            return;
+        }
+
+        const config = {
+            userId: $('#userId').val().trim(),
+            uuid: $('#uuid').val().trim(),
+            label: $('#label').val().trim(),
+            url: $('#apiUrl').val().trim(),
+            payload: $('#requestPayload').val().trim(),
+            priority: window.currentApiEventPriority,  // Store the priority
+            headers: {}
+        };
+
+        if ($('#includeHeaders').is(':checked')) {
+            $('.header-row').each(function() {
+                const key = $(this).find('.header-key').val().trim();
+                const value = $(this).find('.header-value').val().trim();
+                if (key && value) {
+                    config.headers[key] = value;
+                }
+            });
+        }
+
+        localStorage.setItem('apiTaskConfig', JSON.stringify(config));
+        console.log('Saved API config with priority:', config.priority);
+        updateApiButtonState();
+        showNotification('API configuration saved successfully', 'success');
+        
+        // Close the modal
+        const apiModal = bootstrap.Modal.getInstance(document.getElementById('apiTaskModal'));
+        apiModal.hide();
+    });
+
+    // Load saved configuration when modal opens
+    $('#apiTaskModal').on('show.bs.modal', function() {
+        resetModalState();
+        
+        // Load saved configuration
+        const savedConfig = localStorage.getItem('apiTaskConfig');
+        if (savedConfig) {
+            const config = JSON.parse(savedConfig);
+            $('#userId').val(config.userId || '');
+            $('#uuid').val(config.uuid || '');
+            $('#label').val(config.label || 'MY_FLIGHT');
+            $('#apiUrl').val(config.url || '');
+            $('#requestPayload').val(config.payload || '');
+            
+            // Restore priority if available
+            if (config.priority) {
+                window.currentApiEventPriority = config.priority;
+                console.log('Restored priority from config:', config.priority);
+            }
+            
+            if (Object.keys(config.headers || {}).length > 0) {
+                $('#includeHeaders').prop('checked', true);
+                $('#headersContainer').removeClass('d-none');
+                // Populate headers
+                Object.entries(config.headers).forEach(([key, value], index) => {
+                    if (index === 0) {
+                        $('.header-row:first .header-key').val(key);
+                        $('.header-row:first .header-value').val(value);
+                    } else {
+                        const newRow = createHeaderRow(key, value);
+                        $('#addHeaderBtn').before(newRow);
+                    }
+                });
+            }
+        }
+    });
+
+    // Handle run API task button click (play/stop toggle)
+    $('#runApiTaskBtn').click(function() {
+        const button = $(this);
+        const isRequestInProgress = button.data('requestInProgress');
+
+        if (isRequestInProgress) {
+            // Stop the current request
+            if (window.currentApiRequest) {
+                window.currentApiRequest.abort();
+                showNotification('API request cancelled', 'warning');
+            }
+            button.data('requestInProgress', false);
+            updateApiButtonState();
+            return;
+        }
+
+        const savedConfig = localStorage.getItem('apiTaskConfig');
+        if (!savedConfig) {
+            showNotification('No API configuration found. Please configure the API call first.', 'warning');
+            return;
+        }
+
+        const config = JSON.parse(savedConfig);
+        const headers = {
+            'Content-Type': 'application/json',
+            ...(config.uuid && { uuid: config.uuid }),
+            ...(config.label && { label: config.label }),
+            ...config.headers
+        };
+
+        // Show loading state
+        button.prop('disabled', true);
+        button.data('requestInProgress', true);
+        updateApiButtonState();
+        
+        // Make the API call
+        window.currentApiRequest = $.ajax({
+            url: config.url,
+            method: 'POST',
+            headers: headers,
+            data: config.payload,
+            contentType: 'application/json',
+            timeout: API_TIMEOUT // Use the value from Django settings
+        })
+        .done(function(response) {
+            showNotification('API request completed successfully', 'success');
+
+            // --- Add UI update logic --- 
+            const savedConfig = localStorage.getItem('apiTaskConfig');
+            if (savedConfig) {
+                const config = JSON.parse(savedConfig);
+                const requestPriority = config.priority;
+                console.log('#runApiTaskBtn Success: Priority from saved config:', requestPriority);
+
+                if (requestPriority) {
+                    console.log('[#runApiTaskBtn Success] Setting .played class on cards up to priority:', requestPriority);
+                    // Manually add .played class to relevant cards
+                    $('.event-card').each(function() {
+                        const card = $(this);
+                        const cardPriority = parseInt(card.data('priority'));
+                        if (cardPriority <= requestPriority) {
+                            card.addClass('played');
+                        }
+                    });
+
+                    console.log('[#runApiTaskBtn Success] Attempting to update play button states.');
+                    updatePlayButtonStates();
+                    console.log('[#runApiTaskBtn Success] Completed updatePlayButtonStates.');
+                } else {
+                    console.log('[#runApiTaskBtn Success] No priority found in saved config, skipping status update.');
+                }
+            } else {
+                console.log('[#runApiTaskBtn Success] No saved config found, cannot update statuses.');
+            }
+            // --- End UI update logic ---
+        })
+        .fail(function(xhr, textStatus, errorThrown) {
+            let errorMessage;
+            if (textStatus === 'timeout') {
+                errorMessage = 'Request timed out after ' + API_TIMEOUT + ' milliseconds';
+            } else if (textStatus === 'abort') {
+                return; // Don't show error for cancelled requests
+            } else {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    errorMessage = response.message || 'Request failed';
+                } catch (e) {
+                    errorMessage = xhr.responseText || 'Request failed';
+                }
+            }
+            showNotification('API request failed: ' + errorMessage, 'danger');
+        })
+        .always(function() {
+            button.prop('disabled', false);
+            button.data('requestInProgress', false);
+            window.currentApiRequest = null;
+            updateApiButtonState();
+        });
+    });
+
+    // Reset modal on close if not saved
+    $('#apiTaskModal').on('hide.bs.modal', function() {
+        if (!localStorage.getItem('apiTaskConfig')) {
+            $('#apiTaskForm')[0].reset();
+            $('#apiUrl').val('https://flights-build3.ixigo.com/nav/v1/internal/create-tracking');
+            $('#label').val('MY_FLIGHT');
+            $('#clientId').val('iximaio');
+            $('#includeHeaders').prop('checked', false);
+            $('#headersContainer').addClass('d-none');
+            $('.header-row:not(:first)').remove();
+            $('.header-row:first input').val('');
+            $('#requestPayload').val('');
+            $('#apiResponse').addClass('d-none');
+            $('#modalMessageContainer').addClass('d-none');
+        }
+        resetModalState();
+    });
+
+    // Function to validate Kafka form
+    function validateKafkaForm() {
+        let isValid = true;
+        const form = $('#kafkaTaskForm');
+        
+        // Reset previous validation state
+        form.find('.is-invalid').removeClass('is-invalid');
+        
+        // Validate Bootstrap Servers
+        const bootstrapServers = $('#bootstrapServers').val().trim();
+        if (!bootstrapServers) {
+            $('#bootstrapServers').addClass('is-invalid');
+            isValid = false;
+        }
+        
+        // Validate Topic Name
+        const topicName = $('#topicName').val().trim();
+        if (!topicName) {
+            $('#topicName').addClass('is-invalid');
+            isValid = false;
+        }
+        
+        // Validate Schema Registry fields if enabled
+        if ($('#useSchemaRegistry').is(':checked')) {
+            const schemaRegistryUrl = $('#schemaRegistryUrl').val().trim();
+            const schemaSubject = $('#schemaSubject').val().trim();
+            
+            if (!schemaRegistryUrl) {
+                $('#schemaRegistryUrl').addClass('is-invalid');
+                isValid = false;
+            }
+            if (!schemaSubject) {
+                $('#schemaSubject').addClass('is-invalid');
+                isValid = false;
+            }
+        }
+        
+        // Validate JSON payload
+        const payload = $('#kafkaPayload').val().trim();
+        if (!payload || !isValidJson(payload)) {
+            $('#kafkaPayload').addClass('is-invalid');
+            isValid = false;
+        }
+        
+        return isValid;
+    }
+
+    // Function to show Kafka modal message
+    function showKafkaModalMessage(message, type) {
+        const container = $('#kafkaMessageContainer');
+        const icon = container.find('.bi');
+        const text = $('#kafkaMessageText');
+        
+        // Reset classes and state
+        container.removeClass('d-none alert-success alert-warning alert-danger animate__animated animate__fadeIn')
+                .addClass(`alert-${type} animate__animated animate__fadeIn`);
+        
+        icon.removeClass('bi-check-circle bi-exclamation-triangle bi-x-circle')
+            .addClass(type === 'success' ? 'bi-check-circle' : 
+                     type === 'warning' ? 'bi-exclamation-triangle' : 'bi-x-circle');
+        
+        text.text(message);
+        
+        // Force reflow to restart animation
+        container[0].offsetHeight;
+        
+        // Show the container
+        container.removeClass('d-none');
+
+        // Handle notification dismissal via X button
+        container.find('.btn-close').off('click').on('click', function() {
+            container.addClass('d-none');
+            // Restore button state
+            const generateBtn = $('#generateKafkaPayloadBtn');
+            generateBtn.prop('disabled', false);
+            generateBtn.find('.spinner-border').addClass('d-none');
+            generateBtn.find('.bi-magic').removeClass('d-none');
+        });
+    }
+
+    // Function to reset Kafka modal state
+    function resetKafkaModalState() {
+        // Clear any existing notifications
+        $('#kafkaMessageContainer').addClass('d-none');
+        $('#kafkaMessageText').text('');
+        
+        // Reset generate payload button state
+        const generateBtn = $('#generateKafkaPayloadBtn');
+        generateBtn.prop('disabled', false);
+        generateBtn.find('.spinner-border').addClass('d-none');
+        generateBtn.find('.bi-magic').removeClass('d-none');
+        
+        // Reset payload textarea
+        $('#kafkaPayload').removeClass('is-invalid');
+    }
+
+    // Load saved Kafka configuration when modal opens
+    $('#kafkaTaskModal').on('show.bs.modal', function() {
+        resetKafkaModalState();
+        
+        // Load saved configuration
+        const savedConfig = localStorage.getItem('kafkaTaskConfig');
+        if (savedConfig) {
+            const config = JSON.parse(savedConfig);
+            $('#bootstrapServers').val(config.bootstrapServers || 'build-kafka.ixigo.com:9092');
+            $('#topicName').val(config.topicName || 'flight_booking_for_flight_status');
+            $('#kafkaPayload').val(config.payload || '');
+            
+            if (config.useSchemaRegistry) {
+                $('#useSchemaRegistry').prop('checked', true);
+                $('#schemaRegistrySection').removeClass('d-none');
+                $('#schemaRegistryUrl').val(config.schemaRegistryUrl || 'http://build-kafka.ixigo.com:8081');
+            }
+        } else {
+            // Set default values if no saved config
+            $('#bootstrapServers').val('build-kafka.ixigo.com:9092');
+            $('#topicName').val('flight_booking_for_flight_status');
+            $('#schemaRegistryUrl').val('http://build-kafka.ixigo.com:8081');
+            $('#kafkaPayload').val('');  // Empty payload by default
+        }
+    });
+
+    // Reset Kafka modal on close if not saved
+    $('#kafkaTaskModal').on('hide.bs.modal', function(e) {
+        if (currentKafkaRequest) {
+            // Prevent the modal from closing
+            e.preventDefault();
+            
+            // Show confirmation dialog
+            confirmationModal.show();
+            return;
+        }
+
+        if (!localStorage.getItem('kafkaTaskConfig')) {
+            $('#kafkaTaskForm')[0].reset();
+            $('#useSchemaRegistry').prop('checked', false).trigger('change');
+            $('#kafkaPayload').val('');
+            $('#kafkaResponse').addClass('d-none');
+        }
+        resetKafkaModalState();
+    });
+
+    // Handle saving Kafka configuration
+    $('#saveKafkaConfig').click(function() {
+        try {
+            const config = {
+                bootstrapServers: $('#bootstrapServers').val() || '',
+                topicName: $('#topicName').val() || '',
+                payload: $('#kafkaPayload').val() || ''
+            };
+
+            if ($('#useSchemaRegistry').is(':checked')) {
+                config.schemaRegistryUrl = $('#schemaRegistryUrl').val() || '';
+                config.schemaSubject = $('#schemaSubject').val() || '';
+            }
+
+            localStorage.setItem('kafkaTaskConfig', JSON.stringify(config));
+            console.log('Saved Kafka config:', config);
+            updateKafkaButtonState();
+            showNotification('Kafka configuration saved successfully', 'success');
+            
+            // Close the modal
+            const kafkaModal = bootstrap.Modal.getInstance(document.getElementById('kafkaTaskModal'));
+            if (kafkaModal) {
+                kafkaModal.hide();
+            }
+        } catch (error) {
+            console.error('Error saving Kafka config:', error);
+            showNotification('Error saving Kafka configuration', 'error');
+        }
+    });
+
+    // Handle send Kafka event button click
+    $('#sendKafkaEvent').click(function() {
+        if (!validateKafkaForm()) {
+            return;
+        }
+
+        const button = $(this);
+        const cancelButton = $('#cancelKafkaRequest');
+        const spinner = button.find('.spinner-border');
+        const responseDiv = $('#kafkaResponse');
+        const responseContent = $('#kafkaResponseContent');
+        const successIcon = $('#kafkaResponseStatus');
+        const errorIcon = $('#kafkaResponseError');
+        
+        // Show loading state
+        button.prop('disabled', true);
+        spinner.removeClass('d-none');
+        button.find('.bi-send').addClass('d-none');
+        cancelButton.removeClass('d-none');
+        responseDiv.addClass('d-none');
+        successIcon.addClass('d-none');
+        errorIcon.addClass('d-none');
+        
+        // Prepare request data
+        const requestData = {
+            bootstrapServers: $('#bootstrapServers').val().trim(),
+            topicName: $('#topicName').val().trim(),
+            payload: $('#kafkaPayload').val().trim()
+        };
+
+        if ($('#useSchemaRegistry').is(':checked')) {
+            requestData.schemaRegistryUrl = $('#schemaRegistryUrl').val().trim();
+            requestData.schemaSubject = $('#schemaSubject').val().trim();
+        }
+
+        // Make the Kafka produce request
+        currentKafkaRequest = $.ajax({
+            url: "{% url 'produce-kafka-event' %}",
+            method: 'POST',
+            data: JSON.stringify(requestData),
+            contentType: 'application/json',
+            headers: {
+                'X-CSRFToken': $('input[name=csrfmiddlewaretoken]').val()
+            }
+        })
+        .done(function(response) {
+            responseContent.text(JSON.stringify(response, null, 2));
+            successIcon.removeClass('d-none');
+            responseDiv.removeClass('d-none').addClass('animate__animated animate__fadeIn');
+            showNotification('Kafka event produced successfully', 'success');
+        })
+        .fail(function(xhr, textStatus, errorThrown) {
+            let errorMessage;
+            if (textStatus === 'abort') {
+                errorMessage = 'Request cancelled by user';
+            } else {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    errorMessage = response.message || 'Failed to produce Kafka event';
+                } catch (e) {
+                    errorMessage = xhr.responseText || 'Failed to produce Kafka event';
+                }
+            }
+            responseContent.text(errorMessage);
+            errorIcon.removeClass('d-none');
+            responseDiv.removeClass('d-none').addClass('animate__animated animate__fadeIn');
+            showNotification('Failed to produce Kafka event: ' + errorMessage, 'danger');
+        })
+        .always(function() {
+            button.prop('disabled', false);
+            spinner.addClass('d-none');
+            button.find('.bi-send').removeClass('d-none');
+            cancelButton.addClass('d-none');
+            currentKafkaRequest = null;
+        });
+    });
+
+    // Handle Kafka request cancellation
+    $('#cancelKafkaRequest').click(function() {
+        if (currentKafkaRequest) {
+            currentKafkaRequest.abort();
+        }
+    });
+
+    // Handle run Kafka task button click (play/stop toggle)
+    $('#runKafkaTaskBtn').click(function() {
+        const button = $(this);
+        const isRequestInProgress = button.data('requestInProgress');
+
+        if (isRequestInProgress) {
+            // Stop the current request
+            if (currentKafkaRequest) {
+                currentKafkaRequest.abort();
+                showNotification('Kafka request cancelled', 'warning');
+            }
+            button.data('requestInProgress', false);
+            button.find('i').removeClass('bi-stop-fill').addClass('bi-play-fill');
+            button.attr('title', 'Run Kafka task');
+            button.tooltip('dispose').tooltip();
+            return;
+        }
+
+        const savedConfig = localStorage.getItem('kafkaTaskConfig');
+        if (!savedConfig) {
+            showNotification('No Kafka configuration found. Please configure the Kafka event first.', 'warning');
+            return;
+        }
+
+        // Show loading state
+        button.prop('disabled', true);
+        button.data('requestInProgress', true);
+        button.find('i').removeClass('bi-play-fill').addClass('bi-stop-fill');
+        button.attr('title', 'Stop Kafka task');
+        button.tooltip('dispose').tooltip();
+        
+        const config = JSON.parse(savedConfig);
+        const requestData = {
+            bootstrapServers: config.bootstrapServers,
+            topicName: config.topicName,
+            payload: config.payload
+        };
+
+        if (config.useSchemaRegistry) {
+            requestData.schemaRegistryUrl = config.schemaRegistryUrl;
+            requestData.schemaSubject = config.schemaSubject;
+        }
+
+        // Make the Kafka produce request
+        currentKafkaRequest = $.ajax({
+            url: "{% url 'produce-kafka-event' %}",
+            method: 'POST',
+            data: JSON.stringify(requestData),
+            contentType: 'application/json',
+            headers: {
+                'X-CSRFToken': $('input[name=csrfmiddlewaretoken]').val()
+            }
+        })
+        .done(function(response) {
+            showNotification('Kafka event produced successfully', 'success');
+        })
+        .fail(function(xhr, textStatus, errorThrown) {
+            if (textStatus !== 'abort') {
+                let errorMessage;
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    errorMessage = response.message || 'Failed to produce Kafka event';
+                } catch (e) {
+                    errorMessage = xhr.responseText || 'Failed to produce Kafka event';
+                }
+                showNotification('Failed to produce Kafka event: ' + errorMessage, 'danger');
+            }
+        })
+        .always(function() {
+            button.prop('disabled', false);
+            button.data('requestInProgress', false);
+            button.find('i').removeClass('bi-stop-fill').addClass('bi-play-fill');
+            button.attr('title', 'Run Kafka task');
+            button.tooltip('dispose').tooltip();
+            currentKafkaRequest = null;
+        });
+    });
+
+    // ... rest of your document.ready code ...
+
+    // Handle Schema Registry toggle
+    $('#useSchemaRegistry').change(function() {
+        const schemaSection = $('#schemaRegistrySection');
+        if ($(this).is(':checked')) {
+            schemaSection.removeClass('d-none').addClass('animate__animated animate__fadeIn');
+            // Set default URL if empty
+            if (!$('#schemaRegistryUrl').val()) {
+                $('#schemaRegistryUrl').val('http://build-kafka.ixigo.com:8081');
+            }
+        } else {
+            schemaSection.addClass('d-none');
+        }
+    });
+
+    // Function to show Kafka modal message
+    function showKafkaModalMessage(message, type) {
+        const container = $('#kafkaMessageContainer');
+        const icon = container.find('.bi');
+        const text = $('#kafkaMessageText');
+        
+        // Reset classes and state
+        container.removeClass('d-none alert-success alert-warning alert-danger animate__animated animate__fadeIn')
+                .addClass(`alert-${type} animate__animated animate__fadeIn`);
+        
+        icon.removeClass('bi-check-circle bi-exclamation-triangle bi-x-circle')
+            .addClass(type === 'success' ? 'bi-check-circle' : 
+                     type === 'warning' ? 'bi-exclamation-triangle' : 'bi-x-circle');
+        
+        text.text(message);
+        
+        // Force reflow to restart animation
+        container[0].offsetHeight;
+        
+        // Show the container
+        container.removeClass('d-none');
+
+        // Handle notification dismissal via X button
+        container.find('.btn-close').off('click').on('click', function() {
+            container.addClass('d-none');
+            // Restore button state
+            const generateBtn = $('#generateKafkaPayloadBtn');
+            generateBtn.prop('disabled', false);
+            generateBtn.find('.spinner-border').addClass('d-none');
+            generateBtn.find('.bi-magic').removeClass('d-none');
+        });
+    }
+
+    // ... existing code ...
+    // Handle send API request button click
+    $('#sendApiRequest').click(function(e) { // Add 'e' parameter
+        e.preventDefault(); // Prevent default button behavior (like form submission)
+        
+        if (!validateApiForm()) {
+            return;
+        }
+
+        const button = $(this);
+        const spinner = button.find('.spinner-border');
+        const icon = button.find('.bi-send');
+        
+        // Store current priority before request
+        const requestPriority = window.currentApiEventPriority;
+        console.log('Making API request with priority:', requestPriority);
+        
+        button.prop('disabled', true);
+        spinner.removeClass('d-none');
+        icon.addClass('d-none');
+
+        const userId = $('#userId').val().trim();
+        const uuid = $('#uuid').val().trim();
+        const label = $('#label').val().trim();
+        const url = $('#apiUrl').val().trim();
+        const payload = $('#requestPayload').val().trim();
+        
+        console.log('API Request Details:', {
+            url,
+            userId,
+            uuid,
+            label,
+            priority: requestPriority,
+            payload: JSON.parse(payload)
+        });
+        
+        // Add priority to request headers as a string
+        const headers = {
+            'Content-Type': 'application/json',
+            'X-Event-Priority': String(requestPriority) // Convert to string here
+        };
+
+        // Only add custom headers if the include headers checkbox is checked
+        if ($('#includeHeaders').is(':checked')) {
+            $('.header-row').each(function() {
+                const key = $(this).find('.header-key').val().trim();
+                const value = $(this).find('.header-value').val().trim();
+                if (key && value) {
+                    headers[key] = value;
+                }
+            });
+        }
+
+        console.log('Request Headers:', headers);
+
+        // Construct target URL with query parameters
+        let targetUrl = url;
+        const queryParams = [];
+        if (userId) queryParams.push(`userId=${encodeURIComponent(userId)}`);
+        if (uuid) queryParams.push(`uuid=${encodeURIComponent(uuid)}`);
+        if (label) queryParams.push(`label=${encodeURIComponent(label)}`);
+        
+        if (queryParams.length > 0) {
+            // Add ? or & depending on whether the URL already has parameters
+            targetUrl += (url.includes('?') ? '&' : '?') + queryParams.join('&');
+        }
+        
+        console.log('Final URL with query parameters:', targetUrl);
+
+        // Generate the request data
+        const requestData = {
+            url: targetUrl,
+            payload: JSON.parse(payload),
+            headers: headers
+        };
+        console.log('Sending proxy request with data:', requestData);
+        
+        // Log the exact URL being used for the AJAX call
+        const proxyUrl = "{% url 'proxy-api-request' %}";
+        console.log('>>> Making AJAX call to proxy URL:', proxyUrl);
+
+        // Store the current request so it can be cancelled if needed
+        window.currentApiRequest = $.ajax({
+            url: proxyUrl, // Use the variable here
+            method: 'POST',
+            data: JSON.stringify(requestData),
+            contentType: 'application/json',
+            timeout: window.API_TIMEOUT
+        })
+        .done(function(response, textStatus, xhr) {
+            console.log('Proxy Response received:', {
+                status: xhr.status,
+                textStatus: textStatus,
+                response: response
+            });
+
+            // Make sure response section exists and is visible
+            const responseSection = $('#apiResponse');
+            const responseContent = $('#responseContent');
+            const responseStatus = $('#responseStatus');
+            const responseError = $('#responseError');
+
+            console.log('Response elements:', {
+                responseSection: responseSection.length,
+                responseContent: responseContent.length,
+                responseStatus: responseStatus.length,
+                responseError: responseError.length
+            });
+
+            // Format response for display
+            let displayResponse = '';
+            try {
+                if (response.content && typeof response.content === 'object') {
+                    displayResponse = JSON.stringify(response.content, null, 2);
+                } else if (response.content && response.content.text) {
+                    // Handle text response
+                    displayResponse = response.content.text;
+                } else {
+                    displayResponse = JSON.stringify(response, null, 2);
+                }
+            } catch (error) {
+                console.error('Error formatting response:', error);
+                displayResponse = 'Error formatting response: ' + error.message;
+            }
+
+            console.log('Formatted response for display:', displayResponse);
+
+            // Update UI with response
+            responseContent.text(displayResponse);
+            responseSection.removeClass('d-none');
+            
+            if (response.status === 200) {
+                showModalMessage('API request successful', 'success', 'apiTaskModal');
+                
+                // Log priority before check
+                console.log('[API Success] requestPriority value:', requestPriority); 
+
+                // Update event statuses on success
+                if (requestPriority) {
+                    console.log('[API Success] Setting .played class on cards up to priority:', requestPriority);
+                    // Manually add .played class to relevant cards
+                    $('.event-card').each(function() {
+                        const card = $(this);
+                        const cardPriority = parseInt(card.data('priority'));
+                        if (cardPriority <= requestPriority) {
+                            card.addClass('played');
+                        }
+                    });
+
+                    // Remove the faulty function call
+                    // markEventsBasedOnPriority(requestPriority);
+                    // console.log('[API Success] Completed markEventsBasedOnPriority.'); // Log after mark
+
+                    console.log('[API Success] Attempting to update play button states.'); // Log before update
+                    // Ensure main event list UI is updated consistently
+                    updatePlayButtonStates();
+                    console.log('[API Success] Completed updatePlayButtonStates.'); // Log after update
+                } else {
+                     console.log('[API Success] No requestPriority found, skipping event status update.'); // Log if no priority
+                }
+            } else {
+                showModalMessage('API request failed: ' + xhr.status, 'danger', 'apiTaskModal');
+            }
+
+            // Force response section to be visible
+            responseSection.show();
+            console.log('Response section display state:', {
+                isVisible: responseSection.is(':visible'),
+                display: responseSection.css('display'),
+                hasHideClass: responseSection.hasClass('d-none')
+            });
+        })
+        .fail(function(xhr, textStatus, errorThrown) {
+            console.error('API Request failed:', {
+                status: xhr.status,
+                textStatus: textStatus,
+                error: errorThrown,
+                responseText: xhr.responseText
+            });
+
+            const responseSection = $('#apiResponse');
+            const responseContent = $('#responseContent');
+            const responseStatus = $('#responseStatus');
+            const responseError = $('#responseError');
+            
+            let errorMessage;
+            let displayError;
+            
+            if (textStatus === 'timeout') {
+                errorMessage = 'Request timed out after ' + window.API_TIMEOUT + ' milliseconds';
+                displayError = errorMessage;
+            } else {
+                try {
+                    // Try to parse the response as JSON
+                    if (xhr.responseText && xhr.responseText.trim()) {
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            // Handle our proxy endpoint's error format
+                            errorMessage = response.message || response.error || 'Request failed';
+                            displayError = JSON.stringify(response, null, 2);
+                        } catch (e) {
+                            errorMessage = xhr.responseText || errorThrown || 'Request failed';
+                            displayError = errorMessage;
+                        }
+                    } else {
+                        // Handle empty or undefined responseText
+                        errorMessage = errorThrown || 'Request failed with status: ' + xhr.status;
+                        displayError = 'No response content. Status: ' + xhr.status + 
+                                      ' (' + textStatus + ')' + 
+                                      (errorThrown ? '\nError: ' + errorThrown : '');
+                    }
+                } catch (e) {
+                    console.error('Error parsing response:', e);
+                    errorMessage = 'Error processing response: ' + e.message;
+                    displayError = xhr.responseText || 'Request failed with status: ' + xhr.status;
+                }
+            }
+            
+            console.log('Error to display:', {
+                message: errorMessage,
+                display: displayError,
+                status: xhr.status,
+                textStatus: textStatus,
+                error: errorThrown
+            });
+
+            responseContent.text(displayError);
+            responseSection.removeClass('d-none').show();
+            responseError.removeClass('d-none');
+            responseStatus.addClass('d-none');
+            showModalMessage('API request failed: ' + errorMessage, 'danger', 'apiTaskModal');
+
+            // Force response section to be visible
+            console.log('Error response section display state:', {
+                isVisible: responseSection.is(':visible'),
+                display: responseSection.css('display'),
+                hasHideClass: responseSection.hasClass('d-none')
+            });
+        })
+        .always(function() {
+            button.prop('disabled', false);
+            spinner.addClass('d-none');
+            icon.removeClass('d-none');
+        });
+    });
+
+    // Handle API request cancellation
+    $('#cancelApiRequest').click(function() {
+        if (window.currentApiRequest) {
+            window.currentApiRequest.abort();
+            console.log('API request cancelled by user');
+            
+            // Restore button state
+            const button = $('#sendApiRequest');
+            const spinner = button.find('.spinner-border');
+            const icon = button.find('.bi-send');
+            
+            button.prop('disabled', false);
+            spinner.addClass('d-none');
+            icon.removeClass('d-none');
+            
+            showModalMessage('API request cancelled', 'warning', 'apiTaskModal');
+        }
+    });
+
+    // Common function to mark events based on priority
+    function markEventsBasedOnPriority(priority) {
+        console.log('[markEventsBasedOnPriority] Entered function with priority:', priority); // Log entry and priority
+        if (!priority) {
+            console.warn('[markEventsBasedOnPriority] No priority provided for marking events');
+            return;    
+        }
+        
+        console.log('Marking events based on priority:', priority);
+        currentPriority = priority;
+        window.lastPlayedPriority = priority;
+
+        $('.event-card').each(function() {
+            const cardPriority = parseInt($(this).data('priority'));
+            const card = $(this);
+            const badge = card.find('.badge');
+            const playButton = card.find('.play-event-btn');
+            const buttonText = playButton.find('.button-text');
+            
+            if (cardPriority <= priority) {
+                // Mark as played
+                card.addClass('played');
+                badge.removeClass('bg-secondary').addClass('bg-success').text('Played');
+                
+                if (cardPriority === priority) {
+                    // Current priority gets "Play Again"
+                    buttonText.text('Play Again');
+                    playButton.prop('disabled', false)
+                             .removeClass('btn-primary btn-secondary')
+                             .addClass('btn-outline-primary');
+                } else {
+                    // Lower priority events are disabled
+                    buttonText.text('Played');
+                    playButton.prop('disabled', true)
+                             .removeClass('btn-primary btn-outline-primary')
+                             .addClass('btn-secondary');
+                }
+            } else {
+                // Higher priority events are playable
+                card.removeClass('played');
+                badge.removeClass('bg-success').addClass('bg-secondary').text('Pending');
+                buttonText.text('Play');
+                playButton.prop('disabled', false)
+                         .removeClass('btn-outline-primary btn-secondary')
+                         .addClass('btn-primary');
+            }
+        });
+
+        // Update counters and status
+        const playedCount = $('.event-card.played').length;
+        const totalCount = $('.event-card').length;
+        $('#playedCount').text(playedCount);
+        $('#priorityValue').text(priority);
+        
+        if (playedCount > 0) {
+            updateSessionStatus('Active');
+        }
+        console.log('[markEventsBasedOnPriority] Exiting function.'); // Log exit
+    }
+
+    // Modify the payload generation to store the event priority
+    function processNextEvent(index) {
+        if (index >= events.length) {
+            console.log('No events to process');
+            showModalMessage('No valid events found for payload generation', 'warning', 'apiTaskModal');
+            $('#requestPayload').val('').addClass('is-invalid');
+            currentApiEventPriority = null;
+            restoreButtonState();
+            return;
+        }
+
+        const event = events[index];
+        console.log(`Processing event ID=${event.id}, Priority=${event.priority}`);
+
+        $.get(`{% url 'get-event' flight.pk %}?event_id=${event.id}`, function(data) {
+            console.log('Retrieved event data:', data);
+
+            if (hasValidFid(data.raw_event)) {
+                console.log(`Found event with valid fid at priority ${event.priority}`);
+                try {
+                    const rawEvent = typeof data.raw_event === 'string' ? JSON.parse(data.raw_event) : data.raw_event;
+                    console.log('Using raw event:', rawEvent);
+
+                    // Store the event priority and update UI
+                    currentApiEventPriority = event.priority;
+                    $('#requestPayload')
+                        .val(JSON.stringify(rawEvent, null, 2))
+                        .removeClass('is-invalid');
+                    
+                    // Mark events based on this priority
+                    markEventsBasedOnPriority(event.priority);
+                    
+                    showModalMessage(`Payload generated successfully using event with priority ${event.priority}`, 'success', 'apiTaskModal');
+                    restoreButtonState();
+                } catch (error) {
+                    console.error('Error generating payload:', error);
+                    currentApiEventPriority = null;
+                    processNextEvent(index + 1);
+                }
+            } else {
+                console.log(`Event ID=${event.id} does not have a valid fid, checking next event`);
+                processNextEvent(index + 1);
+            }
+        }).fail(function(xhr, status, error) {
+            console.error('Failed to fetch event data:', { status, error, response: xhr.responseText });
+            currentApiEventPriority = null;
+            processNextEvent(index + 1);
+        });
+    }
+
+    // Handle saving API configuration
+    $('#saveApiConfig').click(function() {
+        if (!validateApiForm()) {
+            return;
+        }
+
+        const config = {
+            userId: $('#userId').val().trim(),
+            uuid: $('#uuid').val().trim(),
+            label: $('#label').val().trim(),
+            url: $('#apiUrl').val().trim(),
+            payload: $('#requestPayload').val().trim(),
+            priority: window.currentApiEventPriority,  // Store the priority
+            headers: {}
+        };
+
+        if ($('#includeHeaders').is(':checked')) {
+            $('.header-row').each(function() {
+                const key = $(this).find('.header-key').val().trim();
+                const value = $(this).find('.header-value').val().trim();
+                if (key && value) {
+                    config.headers[key] = value;
+                }
+            });
+        }
+
+        localStorage.setItem('apiTaskConfig', JSON.stringify(config));
+        console.log('Saved API config with priority:', config.priority);
+        updateApiButtonState();
+        showNotification('API configuration saved successfully', 'success');
+        
+        // Close the modal
+        const apiModal = bootstrap.Modal.getInstance(document.getElementById('apiTaskModal'));
+        apiModal.hide();
+    });
+
+    // Load saved configuration when modal opens
+    $('#apiTaskModal').on('show.bs.modal', function() {
+        resetModalState();
+        
+        // Load saved configuration
+        const savedConfig = localStorage.getItem('apiTaskConfig');
+        if (savedConfig) {
+            const config = JSON.parse(savedConfig);
+            $('#userId').val(config.userId || '');
+            $('#uuid').val(config.uuid || '');
+            $('#label').val(config.label || 'MY_FLIGHT');
+            $('#apiUrl').val(config.url || '');
+            $('#requestPayload').val(config.payload || '');
+            
+            // Restore priority if available
+            if (config.priority) {
+                window.currentApiEventPriority = config.priority;
+                console.log('Restored priority from config:', config.priority);
+            }
+            
+            if (Object.keys(config.headers || {}).length > 0) {
+                $('#includeHeaders').prop('checked', true);
+                $('#headersContainer').removeClass('d-none');
+                // Populate headers
+                Object.entries(config.headers).forEach(([key, value], index) => {
+                    if (index === 0) {
+                        $('.header-row:first .header-key').val(key);
+                        $('.header-row:first .header-value').val(value);
+                    } else {
+                        const newRow = createHeaderRow(key, value);
+                        $('#addHeaderBtn').before(newRow);
+                    }
+                });
+            }
+        }
+    });
+
+    // Update send API request to handle priority
+    $('#sendApiRequest').click(function() {
+        if (!validateApiForm()) {
+            return;
+        }
+
+        const button = $(this);
+        const spinner = button.find('.spinner-border');
+        const icon = button.find('.bi-send');
+        
+        // Store current priority before request
+        const requestPriority = window.currentApiEventPriority;
+        console.log('Making API request with priority:', requestPriority);
+        
+        button.prop('disabled', true);
+        spinner.removeClass('d-none');
+        icon.addClass('d-none');
+
+        const userId = $('#userId').val().trim();
+        const uuid = $('#uuid').val().trim();
+        const label = $('#label').val().trim();
+        const url = $('#apiUrl').val().trim();
+        const payload = $('#requestPayload').val().trim();
+        
+        // Add priority to request headers
+        const headers = {
+            'Content-Type': 'application/json',
+            'X-Event-Priority': requestPriority
+        };
+
+        if ($('#includeHeaders').is(':checked')) {
+            $('.header-row').each(function() {
+                const key = $(this).find('.header-key').val().trim();
+                const value = $(this).find('.header-value').val().trim();
+                if (key && value) {
+                    headers[key] = value;
+                }
+            });
+        }
+
+        if (userId) headers['userId'] = userId;
+        if (uuid) headers['uuid'] = uuid;
+        if (label) headers['label'] = label;
+
+        $.ajax({
+            url: url,
+            method: 'POST',
+            data: payload,
+            headers: headers,
+            contentType: 'application/json',
+            timeout: window.API_TIMEOUT
+        })
+        .done(function(response, textStatus, xhr) {
+            // Show response section
+            $('#apiResponse').removeClass('d-none');
+            
+            // Format and display the response
+            let displayResponse = '';
+            if (typeof response === 'object') {
+                displayResponse = JSON.stringify(response, null, 2);
+            } else {
+                try {
+                    displayResponse = JSON.stringify(JSON.parse(response), null, 2);
+                } catch (e) {
+                    displayResponse = response;
+                }
+            }
+            
+            // Update response content and show success icon
+            $('#apiResponseContent').text(displayResponse);
+            $('#apiResponseStatus').removeClass('d-none');
+            $('#apiResponseError').addClass('d-none');
+            $('#apiResponse').removeClass('d-none').addClass('animate__animated animate__fadeIn');
+            
+            if (xhr.status === 200) {
+                showModalMessage('API request successful', 'success', 'apiTaskModal');
+                
+                // Update event statuses on success
+                if (requestPriority) {
+                    console.log('Updating event statuses with priority:', requestPriority);
+                    markEventsBasedOnPriority(requestPriority);
+                    // Ensure main event list UI is updated consistently
+                    updatePlayButtonStates();
+                }
+            } else {
+                showModalMessage('API request failed: ' + xhr.status, 'danger', 'apiTaskModal');
+            }
+        })
+        .fail(function(xhr, textStatus, errorThrown) {
+            // Show response section
+            $('#apiResponse').removeClass('d-none');
+            
+            let errorMessage;
+            let displayError;
+            
+            if (textStatus === 'timeout') {
+                errorMessage = 'Request timed out after ' + window.API_TIMEOUT + ' milliseconds';
+                displayError = errorMessage;
+            } else {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    errorMessage = response.message || 'Request failed';
+                    displayError = JSON.stringify(response, null, 2);
+                } catch (e) {
+                    errorMessage = xhr.responseText || 'Request failed';
+                    displayError = errorMessage;
+                }
+            }
+            
+            // Update response content and show error icon
+            $('#apiResponseContent').text(displayError);
+            $('#apiResponseError').removeClass('d-none');
+            $('#apiResponseStatus').addClass('d-none');
+            $('#apiResponse').removeClass('d-none').addClass('animate__animated animate__fadeIn');
+            showModalMessage('API request failed: ' + errorMessage, 'danger', 'apiTaskModal');
+        })
+        .always(function() {
+            button.prop('disabled', false);
+            spinner.addClass('d-none');
+            icon.removeClass('d-none');
+        });
+    });
+
+    // ... existing code ...
+
+    // Function to save API configuration with priority
+    function saveApiConfiguration() {
+        const payload = $('#apiPayloadTextarea').val();
+        const url = $('#apiUrlInput').val();
+        const headers = $('#apiHeadersTextarea').val();
+        const userId = $('#userIdInput').val();
+        const uuid = $('#uuidInput').val();
+        const label = $('#labelInput').val();
+
+        const config = {
+            payload,
+            url,
+            headers: headers ? JSON.parse(headers) : {},
+            userId,
+            uuid,
+            label,
+            priority: window.currentApiEventPriority // Store priority with config
+        };
+
+        localStorage.setItem('apiConfiguration', JSON.stringify(config));
+        
+        // Show success message
+        showToast('API configuration saved successfully', 'success');
+    }
+
+    // Function to load API configuration
+    function loadApiConfiguration() {
+        const configStr = localStorage.getItem('apiConfiguration');
+        if (configStr) {
+            const config = JSON.parse(configStr);
+            $('#apiPayloadTextarea').val(config.payload || '');
+            $('#apiUrlInput').val(config.url || '');
+            $('#apiHeadersTextarea').val(config.headers ? JSON.stringify(config.headers, null, 2) : '');
+            $('#userIdInput').val(config.userId || '');
+            $('#uuidInput').val(config.uuid || '');
+            $('#labelInput').val(config.label || '');
+            
+            // Restore priority if available
+            if (config.priority) {
+                window.currentApiEventPriority = config.priority;
+                console.log('Restored priority:', window.currentApiEventPriority);
+            }
+        }
+    }
+
+    // Update API request handling
+    $('#apiRequestBtn').on('click', function() {
+        const btn = $(this);
+        const form = $('#apiConfigForm');
+        
+        if (!form[0].checkValidity()) {
+            form[0].reportValidity();
+            return;
+        }
+
+        // Store current priority before making request
+        const currentPriority = window.currentApiEventPriority;
+        console.log('Current priority before API call:', currentPriority);
+
+        // Get configuration
+        const payload = $('#apiPayloadTextarea').val();
+        const url = $('#apiUrlInput').val();
+        const headersStr = $('#apiHeadersTextarea').val();
+        const headers = headersStr ? JSON.parse(headersStr) : {};
+
+        btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Sending...');
+
+        // Make API request
+        $.ajax({
+            url: url,
+            method: 'POST',
+            headers: headers,
+            data: payload,
+            contentType: 'application/json',
+            timeout: window.API_TIMEOUT,
+            success: function(response, textStatus, xhr) {
+                console.log('API Response:', response);
+                console.log('Status Code:', xhr.status);
+                
+                if (xhr.status === 200) {
+                    showToast('API request successful', 'success');
+                    
+                    // Mark events based on priority after successful API call
+                    if (currentPriority) {
+                        console.log('Marking events with priority:', currentPriority);
+                        markEventsBasedOnPriority(currentPriority);
+                    }
+                } else {
+                    showToast('API request failed: ' + xhr.status, 'error');
+                }
+            },
+            error: function(xhr, textStatus, errorThrown) {
+                console.error('API Error:', errorThrown);
+                showToast('API request failed: ' + errorThrown, 'error');
+            },
+            complete: function() {
+                btn.prop('disabled', false).text('Send Request');
+            }
+        });
+    });
+
+    // Handle delete flight form submission
+    $('#deleteFlightForm').on('submit', function(e) {
+        e.preventDefault();
+        const form = $(this);
+        const flightId = '{{ flight.flight_unique_id }}';
+        
+        $.post(form.attr('action'), form.serialize())
+        .done(function(response) {
+            // Show success notification with green styling
+            showNotification(`Flight ${flightId} has been deleted`, 'success');
+            // Redirect after a short delay to allow notification to be seen
+            setTimeout(() => {
+                window.location.href = "{% url 'flight-list' %}";
+            }, 1000);
+        })
+        .fail(function(xhr) {
+            showNotification('Failed to delete flight: ' + (xhr.responseJSON?.message || 'Unknown error'), 'danger');
+        });
+    });
+
+    // Generate payload button click handler
+    $('#generatePayloadBtn').click(function() {
+        console.log('Generate API Payload button clicked');
+        const button = $(this);
+        const buttonSpinner = button.find('.spinner-border');
+        const buttonIcon = button.find('.bi-magic');
+        
+        // Show loading states
+        button.prop('disabled', true);
+        buttonSpinner.removeClass('d-none');
+        buttonIcon.addClass('d-none');
+
+        // Get all events sorted by priority
+        const events = $('.event-card').toArray()
+            .map(card => {
+                const element = $(card);
+                return {
+                    id: element.attr('id').replace('event-', ''),
+                    priority: parseInt(element.data('priority'))
+                };
+            })
+            .sort((a, b) => a.priority - b.priority);
+
+        if (events.length === 0) {
+            showModalMessage('No events found. Please add some events before generating the payload.', 'warning', 'apiTaskModal');
+            $('#requestPayload').val('').addClass('is-invalid');
+            button.prop('disabled', false);
+            buttonSpinner.addClass('d-none');
+            buttonIcon.removeClass('d-none');
+            return;
+        }
+
+        // Function to restore button state
+        function restoreButtonState() {
+            button.prop('disabled', false);
+            buttonSpinner.addClass('d-none');
+            buttonIcon.removeClass('d-none');
+        }
+
+        // Function to transform payload using the create-flight-detail API
+        function transformPayload(rawEvent) {
+            return new Promise((resolve, reject) => {
+                // Extract host from the modal's URL field for passing to backend
+                const modalUrl = $('#apiUrl').val();
+                const hostAddress = new URL(modalUrl).origin;
+                
+                console.log('Transforming payload using host:', hostAddress);
+                
+                $.ajax({
+                    url: "{% url 'transform-payload' %}",  // Django endpoint that will proxy the request
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': $('input[name=csrfmiddlewaretoken]').val()
+                    },
+                    data: JSON.stringify({
+                        raw_event: rawEvent,
+                        host_address: hostAddress
+                    }),
+                    success: function(response) {
+                        console.log('Transformation API response:', response);
+                        if (response && Object.keys(response).length > 0) {
+                            resolve(response);
+                        } else {
+                            reject(new Error('Transformation API returned empty response'));
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        console.error('Transformation API error:', error);
+                        let errorMessage = 'Transformation failed';
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            errorMessage = response.message || errorMessage;
+                        } catch (e) {
+                            errorMessage = xhr.responseText || errorMessage;
+                        }
+                        reject(new Error(errorMessage));
+                    }
+                });
+            });
+        }
+
+        // Process events to find one with valid fid
+        function processEvent(index) {
+            if (index >= events.length) {
+                showModalMessage('No valid events found for payload generation. Please add event data manually.', 'warning', 'apiTaskModal');
+                $('#requestPayload').val('').addClass('is-invalid');
+                restoreButtonState();
+                return;
+            }
+
+            const event = events[index];
+            console.log(`Processing event ID=${event.id}, Priority=${event.priority}`);
+
+            $.get(`{% url 'get-event' flight.pk %}?event_id=${event.id}`, function(data) {
+                try {
+                    const rawEvent = typeof data.raw_event === 'string' ? JSON.parse(data.raw_event) : data.raw_event;
+                    if (rawEvent && rawEvent.fid) {
+                        // Store the event priority globally
+                        window.currentApiEventPriority = event.priority;
+                        console.log('Set currentApiEventPriority to:', window.currentApiEventPriority);
+
+                        // Transform the payload before updating UI
+                        transformPayload(rawEvent)
+                            .then(transformedPayload => {
+                                // Update the payload with transformed data
+                                $('#requestPayload')
+                                    .val(JSON.stringify(transformedPayload, null, 2))
+                                    .removeClass('is-invalid');
+                                
+                                showModalMessage(`Payload generated and transformed successfully using event with priority ${event.priority}`, 'success', 'apiTaskModal');
+                                restoreButtonState();
+                            })
+                            .catch(error => {
+                                console.error('Payload transformation failed:', error);
+                                showModalMessage(`Failed to transform payload: ${error.message}`, 'danger', 'apiTaskModal');
+                                $('#requestPayload').val('').addClass('is-invalid');
+                                
+                                // Try next event if transformation fails
+                                processEvent(index + 1);
+                            });
+                    } else {
+                        processEvent(index + 1);
+                    }
+                } catch (error) {
+                    console.error('Error processing event:', error);
+                    processEvent(index + 1);
+                }
+            }).fail(function(xhr, status, error) {
+                console.error('Failed to fetch event:', error);
+                processEvent(index + 1);
+            });
+        }
+
+        // Start processing with first event
+        processEvent(0);
+    });
+
+    // Function to mark events based on priority
+    function markEventsBasedOnPriority(targetPriority) {
+        if (!targetPriority) {
+            console.warn('No priority provided for marking events');
+            return;
+        }
+
+        console.log('Marking events with priority up to:', targetPriority);
+        
+        $('.event-card').each(function() {
+            const eventCard = $(this);
+            const eventPriority = parseInt(eventCard.data('priority'));
+            const playButton = eventCard.find('.play-button');
+            
+            if (eventPriority <= targetPriority) {
+                // Mark as played
+                playButton.addClass('played').removeClass('not-played');
+                eventCard.addClass('event-played');
+                
+                if (eventPriority === targetPriority) {
+                    // Only the highest played priority can be played again
+                    playButton.prop('disabled', false)
+                             .text('Play Again')
+                             .removeClass('btn-success')
+                             .addClass('btn-primary');
+                } else {
+                    // Lower priorities are disabled and marked as played
+                    playButton.prop('disabled', true)
+                             .text('Played')
+                             .removeClass('btn-success')
+                             .addClass('btn-success');
+                    
+                    // Force immediate UI update for lower priorities
+                    playButton.blur();  // Remove focus
+                    playButton.off('click');  // Remove click handlers
+                }
+            } else {
+                // Higher priorities remain enabled for play
+                playButton.prop('disabled', false)
+                         .text('Play')
+                         .removeClass('btn-success')
+                         .addClass('btn-primary')
+                         .removeClass('played')
+                         .addClass('not-played');
+                eventCard.removeClass('event-played');
+            }
+        });
+
+        // Save states to localStorage
+        saveEventStates();
+    }
+
+    // Handle individual event play button clicks
+    $('.play-button').click(function() {
+        const button = $(this);
+        const eventCard = button.closest('.event-card');
+        const priority = parseInt(eventCard.data('priority'));
+        
+        // Update window.currentApiEventPriority
+        window.currentApiEventPriority = priority;
+        
+        // Mark this and lower priority events
+        markEventsBasedOnPriority(priority);
+        
+        // Force immediate UI update
+        $('.play-button').each(function() {
+            const btn = $(this);
+            const card = btn.closest('.event-card');
+            const btnPriority = parseInt(card.data('priority'));
+            
+            if (btnPriority < priority) {
+                btn.prop('disabled', true)
+                   .text('Played')
+                   .removeClass('btn-primary')
+                   .addClass('btn-success');
+                btn.blur();  // Remove focus
+                btn.off('click');  // Remove click handlers
+            }
+        });
+    });
+
+    // ... existing code ...
+
+    // Add a test function to check if proxy endpoint is accessible
+    function testProxyEndpoint() {
+        console.log('Testing proxy endpoint...');
+        $.ajax({
+            url: "{% url 'proxy-api-request' %}",
+            method: 'POST',
+            data: JSON.stringify({
+                url: 'https://httpbin.org/post',
+                payload: { test: 'data' },
+                headers: { 'Content-Type': 'application/json' }
+            }),
+            contentType: 'application/json'
+        })
+        .done(function(response) {
+            console.log('Proxy test successful:', response);
+        })
+        .fail(function(xhr, status, error) {
+            console.error('Proxy test failed:', {
+                status: status,
+                error: error,
+                responseText: xhr.responseText
+            });
+        });
+    }
+    
+    // Test the proxy endpoint on page load
+    testProxyEndpoint();
+
+    // Handle send API request button click
+});
+</script>
+{% endblock %} 

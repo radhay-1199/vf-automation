@@ -1,0 +1,38 @@
+{% extends 'event_manager/base.html' %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h2>Flight Events</h2>
+    </div>
+    <div class="col text-end">
+        <a href="{% url 'flight-create' %}" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> Add New Flight
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    {% for flight in flights %}
+        <div class="col-md-4 mb-4">
+            <div class="card event-card">
+                <div class="card-body">
+                    <h5 class="card-title">{{ flight.flight_unique_id }}</h5>
+                    <p class="card-text">
+                        <small class="text-muted">Created: {{ flight.created_at|date:"M d, Y H:i" }}</small>
+                    </p>
+                    <a href="{% url 'flight-detail' flight.pk %}" class="btn btn-outline-primary">
+                        View Events
+                    </a>
+                </div>
+            </div>
+        </div>
+    {% empty %}
+        <div class="col">
+            <div class="alert alert-info">
+                No flights added yet. Click "Add New Flight" to get started.
+            </div>
+        </div>
+    {% endfor %}
+</div>
+{% endblock %} 

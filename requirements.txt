@@ -1,0 +1,13 @@
+Django==4.2.20
+psycopg2-binary==2.9.9
+django-crispy-forms==2.3
+django-health-check==3.18.3
+python-dotenv==1.1.0
+requests==2.32.3
+uvicorn==0.27.1
+gunicorn==21.2.0
+crispy-bootstrap4==2024.10
+whitenoise==6.9.0  # For serving static files
+confluent-kafka==2.3.0
+confluent-kafka[avro]==2.3.0
+avro-python3==1.10.2 
