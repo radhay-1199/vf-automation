@@ -1,64 +1,288 @@
-# Flight Event Mock Service
+# Flight Test Automation Tool
 
-A Django-based service for mocking and replaying flight events for testing purposes. This service allows you to simulate flight tracking events by sending them to your callback endpoints in a controlled manner.
+A powerful tool to simulate flight status events for testing and development purposes. This application allows you to create, configure, and replay flight events through a user-friendly web interface.
+
+![Flight Test Automation](docs/screenshot.png)
 
 ## Features
 
-- Create and manage multiple flight tracks
-- Add and organize flight events with priorities
-- Configure mock settings (delay, fast-forward, manual mode)
-- Support for additional tasks (Kafka events, API calls)
-- Clean and intuitive UI
-- Event playback controls (start, next, abort)
-- Visual feedback for played events
+- Create and manage multiple flight test sessions
+- Define custom event sequences with configurable priorities
+- Import event data from CSV files
+- Real-time event playback with configurable delays
+- Manual or automatic event sequencing
+- Database cleanup tools with custom query support
+- Kafka event production capabilities
+- API call simulation
 
-## Setup
+## Table of Contents
 
-1. Create a virtual environment and activate it:
-```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+- [Prerequisites](#prerequisites)
+- [Setup Options](#setup-options)
+  - [Option 1: Docker Compose (Recommended)](#option-1-docker-compose-recommended)
+  - [Option 2: Local Python with Docker Database](#option-2-local-python-with-docker-database)
+  - [Option 3: Fully Local Setup](#option-3-fully-local-setup)
+- [Configuration](#configuration)
+- [Usage Guide](#usage-guide)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
+
+## Prerequisites
+
+- Python 3.8+ (if running locally)
+- Docker and Docker Compose (for containerized setup)
+- Git
+
+## Setup Options
+
+Choose one of the following setup options based on your preferences and environment.
+
+### Option 1: Docker Compose (Recommended)
+
+This option runs both the web application and PostgreSQL database in Docker containers.
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/vf-test-automation.git
+   cd vf-test-automation
+   ```
+
+2. Copy the sample environment file to create your `.env` file:
+   ```bash
+   cp .env.sample .env
+   ```
+   
+   The sample file already contains all necessary configuration variables. You can edit this file if you need to customize any settings.
+
+3. Build and start the containers:
+   ```bash
+   docker-compose up -d
+   ```
+
+4. Create database migrations and superuser:
+   ```bash
+   docker-compose exec web python manage.py migrate
+   docker-compose exec web python manage.py createsuperuser
+   ```
+
+5. Access the application at http://localhost:8000
+
+### Option 2: Local Python with Docker Database
+
+Run the application locally while using a Docker container for the PostgreSQL database.
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/vf-test-automation.git
+   cd vf-test-automation
+   ```
+
+2. Copy the sample environment file to create your `.env` file:
+   ```bash
+   cp .env.sample .env
+   ```
+   
+   Edit the `.env` file to update the DATABASE_URL to point to the local Docker instance:
+   ```
+   DATABASE_URL=postgres://postgres:postgres@localhost:5432/flightdb
+   ```
+
+3. Start the PostgreSQL container:
+   ```bash
+   docker run --name flight-postgres -e POSTGRES_DB=flightdb -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres:13
+   ```
+
+4. Create and activate a virtual environment:
+   ```bash
+   # On macOS/Linux
+   python -m venv venv
+   source venv/bin/activate
+
+   # On Windows
+   python -m venv venv
+   venv\Scripts\activate
+   ```
+
+5. Install required packages:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+6. Run migrations and create a superuser:
+   ```bash
+   python manage.py migrate
+   python manage.py createsuperuser
+   ```
+
+7. Start the development server:
+   ```bash
+   python manage.py runserver
+   ```
+
+8. Access the application at http://localhost:8000
+
+### Option 3: Fully Local Setup
+
+Run both the application and database locally without Docker.
+
+1. Install PostgreSQL on your machine
+   - [PostgreSQL Downloads](https://www.postgresql.org/download/)
+   - Create a database named `flightdb`
+   - Create a user `postgres` with password `postgres` (or use your own credentials)
+
+2. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/vf-test-automation.git
+   cd vf-test-automation
+   ```
+
+3. Copy the sample environment file to create your `.env` file:
+   ```bash
+   cp .env.sample .env
+   ```
+   
+   Edit the `.env` file to update the DATABASE_URL to point to your local PostgreSQL instance:
+   ```
+   DATABASE_URL=postgres://postgres:postgres@localhost:5432/flightdb
+   ```
+
+4. Create and activate a virtual environment:
+   ```bash
+   # On macOS/Linux
+   python -m venv venv
+   source venv/bin/activate
+
+   # On Windows
+   python -m venv venv
+   venv\Scripts\activate
+   ```
+
+5. Install required packages:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+6. Run migrations and create a superuser:
+   ```bash
+   python manage.py migrate
+   python manage.py createsuperuser
+   ```
+
+7. Start the development server:
+   ```bash
+   python manage.py runserver
+   ```
+
+8. Access the application at http://localhost:8000
+
+## Configuration
+
+### Database Connection
+
+You can configure the database connection in the `.env` file or directly in the Django settings.
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| DEBUG | Enable debug mode | True |
+| SECRET_KEY | Django secret key | Generated |
+| DATABASE_URL | Database connection URL | postgres://postgres:postgres@localhost:5432/flightdb |
+| API_TIMEOUT_MS | Timeout for API calls in milliseconds | 15000 |
+
+## Usage Guide
+
+### Creating a New Flight
+
+1. Navigate to the main page and click on "Create New Flight"
+2. Enter a unique Flight ID
+3. Configure the Callback URL where events will be sent
+4. Set the event delay and other configuration options
+5. Click "Create" to set up the flight
+
+### Adding Events
+
+1. Open the flight detail page
+2. Click "Add Event" 
+3. Fill in the event details and JSON payload
+4. Set the priority (or leave as 0 to auto-assign)
+5. Click "Add Event"
+
+### Running a Mock Session
+
+1. Configure the cleanup query if needed (in the Advanced Configuration section)
+2. Click the "Start Session" button to begin
+3. Events will be sent to your callback URL in sequence
+4. Use the "Next Event" button to advance manually in manual mode
+5. Use "Pause," "Reset," or "Abort" to control the session
+
+### Cleanup Queries
+
+1. Expand the "Advanced Configuration" section
+2. Enter your SQL query or use the default
+3. Use the placeholder `{flight_unique_id}` to reference the current flight
+4. Click the play button to execute the query
+
+## Development
+
+### Project Structure
+
+```
+vf-test-automation/
+├── event_manager/          # Main Django app
+│   ├── models.py           # Database models
+│   ├── views.py            # View functions
+│   ├── urls.py             # URL routing
+│   ├── forms.py            # Form definitions
+│   ├── admin.py            # Admin site configuration
+│   └── templates/          # HTML templates
+│       └── event_manager/  # App-specific templates
+├── templates/              # Project-level templates
+├── static/                 # Static files (CSS, JS, images)
+├── vf_test_automation/     # Project settings
+│   ├── settings.py         # Django settings
+│   ├── urls.py             # Project URL routing
+│   └── wsgi.py             # WSGI configuration
+├── manage.py               # Django management script
+├── requirements.txt        # Python dependencies
+└── docker-compose.yml      # Docker configuration
 ```
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+### Adding New Features
 
-3. Set up PostgreSQL database and update settings in `flight_mock/settings.py`
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Implement your changes
+4. Test thoroughly
+5. Submit a pull request
 
-4. Run migrations:
+## Troubleshooting
+
+### Database Connection Issues
+
+If you encounter database connection problems:
+
+1. Verify the database service is running
+2. Check that your connection settings are correct
+3. For Docker setups, ensure the containers are properly linked
+
+### Missing Dependencies
+
+If you get import errors:
+
+1. Ensure your virtual environment is activated
+2. Update your requirements: `pip install -r requirements.txt`
+3. Restart the application
+
+### Running Migrations
+
+If database tables are missing:
+
 ```bash
 python manage.py makemigrations
 python manage.py migrate
 ```
 
-5. Create a superuser:
-```bash
-python manage.py createsuperuser
-```
+## License
 
-6. Run the development server:
-```bash
-python manage.py runserver
-```
-
-## Usage
-
-1. Access the application at `http://localhost:8000`
-2. Add a new flight using the "Add New Flight" button
-3. Configure mock settings for the flight
-4. Add events to the flight with their respective priorities and states
-5. Use the mock controls to start, play next event, or abort the mock session
-
-## Additional Tasks
-
-You can configure additional tasks to run before starting the mock session:
-
-1. Kafka Events: Configure Kafka producer settings and payload
-2. API Calls: Set up API endpoints and request bodies
-3. Cleanup Tasks: Define cleanup operations before mock sessions
-
-## Contributing
-
-Feel free to submit issues and enhancement requests! 
+This project is licensed under the MIT License - see the LICENSE file for details. 

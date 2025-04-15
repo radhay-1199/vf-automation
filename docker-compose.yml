@@ -1,48 +1,45 @@
 version: '3.8'
 
 services:
+  # PostgreSQL Database
   db:
     image: postgres:13
-    env_file: .env
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data/
+    env_file:
+      - ./.env
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-flightdb}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  # Web Application
   web:
-    build: .
-    command: /docker-entrypoint.sh
-    env_file: .env
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
     volumes:
-      - static_volume:${STATIC_ROOT:-/app/staticfiles}
+      - .:/app
     ports:
       - "8000:8000"
+    env_file:
+      - ./.env
     depends_on:
       db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
-      interval: ${HEALTH_CHECK_INTERVAL:-30}s
-      timeout: ${HEALTH_CHECK_TIMEOUT:-10}s
-      retries: ${HEALTH_CHECK_RETRIES:-3}
-      start_period: 40s
-
-  nginx:
-    image: nginx:alpine
-    volumes:
-      - static_volume:${STATIC_ROOT:-/app/staticfiles}
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    ports:
-      - "80:80"
-    depends_on:
-      web:
-        condition: service_healthy
+    environment:
+      - DEBUG=True
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-flightdb}
 
 volumes:
-  postgres_data:
-  static_volume: 
+  postgres_data: 
