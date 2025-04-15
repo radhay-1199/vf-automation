@@ -49,23 +49,24 @@ This option runs both the web application and PostgreSQL database in Docker cont
 
 2. Copy the sample environment file to create your `.env` file:
    ```bash
-   cp .env.sample .env
+   cp .env.example .env
    ```
    
    The sample file already contains all necessary configuration variables. You can edit this file if you need to customize any settings.
+   >  Ensure the value of the variable POSTGRES_HOST in your .env file (Use value 'db' for when using postgres on Docker, 'localhost' for local)
 
-3. Build and start the containers:
+4. Build and start the containers:
    ```bash
    docker-compose up -d
    ```
 
-4. Create database migrations and superuser:
+5. Create database migrations and superuser:
    ```bash
    docker-compose exec web python manage.py migrate
    docker-compose exec web python manage.py createsuperuser
    ```
 
-5. Access the application at http://localhost:8000
+6. Access the application at http://localhost:8000
 
 ### Option 2: Local Python with Docker Database
 
@@ -79,17 +80,17 @@ Run the application locally while using a Docker container for the PostgreSQL da
 
 2. Copy the sample environment file to create your `.env` file:
    ```bash
-   cp .env.sample .env
+   cp .env.example .env
    ```
    
-   Edit the `.env` file to update the DATABASE_URL to point to the local Docker instance:
+   Edit the `.env` file to update the POSTGRES_HOST to point to the local Docker instance:
    ```
-   DATABASE_URL=postgres://postgres:postgres@localhost:5432/flightdb
+   POSTGRES_HOST=localhost
    ```
 
 3. Start the PostgreSQL container:
    ```bash
-   docker run --name flight-postgres -e POSTGRES_DB=flightdb -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres:13
+   docker-compose up -d db
    ```
 
 4. Create and activate a virtual environment:
@@ -127,7 +128,7 @@ Run both the application and database locally without Docker.
 
 1. Install PostgreSQL on your machine
    - [PostgreSQL Downloads](https://www.postgresql.org/download/)
-   - Create a database named `flightdb`
+   - Create a database named `flight_mock_db`
    - Create a user `postgres` with password `postgres` (or use your own credentials)
 
 2. Clone the repository:
@@ -138,12 +139,16 @@ Run both the application and database locally without Docker.
 
 3. Copy the sample environment file to create your `.env` file:
    ```bash
-   cp .env.sample .env
+   cp .env.example .env
    ```
    
-   Edit the `.env` file to update the DATABASE_URL to point to your local PostgreSQL instance:
+   Edit the `.env` file to update the POSTGRES_HOST to point to your local PostgreSQL instance:
    ```
-   DATABASE_URL=postgres://postgres:postgres@localhost:5432/flightdb
+    POSTGRES_DB=flight_mock_db
+    POSTGRES_USER=postgres
+    POSTGRES_PASSWORD=postgres
+    POSTGRES_HOST=localhost
+    POSTGRES_PORT=5432
    ```
 
 4. Create and activate a virtual environment:
@@ -180,15 +185,6 @@ Run both the application and database locally without Docker.
 ### Database Connection
 
 You can configure the database connection in the `.env` file or directly in the Django settings.
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| DEBUG | Enable debug mode | True |
-| SECRET_KEY | Django secret key | Generated |
-| DATABASE_URL | Database connection URL | postgres://postgres:postgres@localhost:5432/flightdb |
-| API_TIMEOUT_MS | Timeout for API calls in milliseconds | 15000 |
 
 ## Usage Guide
 
